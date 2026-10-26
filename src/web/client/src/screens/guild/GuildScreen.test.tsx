@@ -162,7 +162,7 @@ describe('channel pane', () => {
     await user.click(within(row).getByRole('button', { name: 'Save' }));
 
     expect(await within(row).findByText(/Last edited by Ada Admin/)).toBeTruthy();
-    expect(t.activity.at(-1)).toMatchObject({ moduleId: 'collector', channelId: '22', message: 'Channel config edited' });
+    expect(t.activity.listActivity({ moduleId: 'collector' })[0]).toMatchObject({ moduleId: 'collector', channelId: '22', message: 'Channel config edited' });
   });
 });
 

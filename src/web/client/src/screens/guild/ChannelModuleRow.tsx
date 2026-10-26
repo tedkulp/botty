@@ -3,6 +3,7 @@ import type { ChannelModule } from '../../api/client.js';
 import { useDashboard } from '../../app/dashboard.js';
 import { SchemaForm, type SaveResult } from '../../forms/SchemaForm.js';
 import { LastEdited, Switch } from '../../ui/status.js';
+import { RecentActivity } from '../activity/RecentActivity.js';
 
 export interface ChannelModuleRowProps {
   channelId: string;
@@ -21,14 +22,15 @@ function EnablementPill({ module }: { module: ChannelModule }) {
 
 /**
  * One Module in a channel pane: its channel switch, an enablement pill, a
- * missing-permissions warning and a "configure" expander with the Channel
- * config form.
+ * missing-permissions warning, a "configure" expander with the Channel
+ * config form and a "recent" expander with the Module's latest Activity here.
  */
 export function ChannelModuleRow({ channelId, channelName, module, onChanged }: ChannelModuleRowProps) {
   const { api } = useDashboard();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [configuring, setConfiguring] = useState(false);
+  const [showRecent, setShowRecent] = useState(false);
   const hasConfig = Object.keys((module.schema.properties as object | undefined) ?? {}).length > 0;
 
   async function toggle(on: boolean) {
@@ -83,7 +85,9 @@ export function ChannelModuleRow({ channelId, channelName, module, onChanged }: 
         ) : (
           <span className="muted">No Channel config</span>
         )}
-        {/* #22: the "recent" Activity expander goes here, next to "configure" (it has module.id and channelId). */}
+        <button type="button" className="link" aria-expanded={showRecent} onClick={() => setShowRecent((v) => !v)}>
+          recent
+        </button>
       </div>
       {configuring && (
         <div className="expander-body">
@@ -95,6 +99,7 @@ export function ChannelModuleRow({ channelId, channelName, module, onChanged }: 
           />
         </div>
       )}
+      {showRecent && <RecentActivity moduleId={module.id} moduleName={module.name} channelId={channelId} />}
     </section>
   );
 }

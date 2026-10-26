@@ -288,7 +288,7 @@ describe('channel writes', () => {
     expect(await json(res)).toMatchObject({ id: 'collector', globalEnabled: false, channelEnabled: true, enabled: false });
     const again = await json(await call('/api/channels/22/modules'));
     expect(again.modules[0]).toMatchObject({ channelEnabled: true, enabled: false, updatedBy: { name: 'Ada Admin' } });
-    expect(t.activity.at(-1)).toMatchObject({ moduleId: 'collector', channelId: '22', guildId: 'g1', message: 'switched on in channel' });
+    expect(t.activity.listActivity({ moduleId: 'collector' })[0]).toMatchObject({ moduleId: 'collector', channelId: '22', guildId: 'g1', message: 'switched on in channel' });
 
     await t.runtime.setModuleGlobalEnabled('collector', true, ADMIN);
     expect(t.runtime.isEnabledIn('collector', '22')).toBe(true);
@@ -311,7 +311,7 @@ describe('channel writes', () => {
     const bad = await put({ tags: 'nope' });
     expect(bad.status).toBe(400);
     expect(await json(bad)).toMatchObject({ error: 'invalid config', fieldErrors: [{ path: ['tags'] }] });
-    expect(t.activity.filter((a) => a.message === 'Channel config edited')).toHaveLength(2);
+    expect(t.activity.listActivity({ moduleId: 'collector' }).filter((a) => a.message === 'Channel config edited')).toHaveLength(2);
   });
 
   it.each([

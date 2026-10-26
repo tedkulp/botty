@@ -4,6 +4,7 @@ import { useDashboard } from '../../app/dashboard.js';
 import { SchemaForm, type SaveResult } from '../../forms/SchemaForm.js';
 import { useAsync } from '../../lib/useAsync.js';
 import { LastEdited, StatusLine, Switch } from '../../ui/status.js';
+import { ModuleActivityFeed } from '../activity/ModuleActivityFeed.js';
 
 function summaryOf(m: ModuleDetail): ModuleSummary {
   return { id: m.id, name: m.name, enabled: m.enabled, status: m.status, lastError: m.lastError };
@@ -18,7 +19,7 @@ export interface ModulePaneProps {
 /**
  * One Module's global settings: the global switch (amber while setup or
  * cleanup runs), status and last error, a needs-review flag and the Global
- * config form. #22 adds the Activity feed below the form.
+ * config form, then the Module's Activity feed.
  */
 export function ModulePane({ moduleId, onChanged }: ModulePaneProps) {
   const { api, refreshKey } = useDashboard();
@@ -87,6 +88,8 @@ export function ModulePane({ moduleId, onChanged }: ModulePaneProps) {
         onSave={save}
         footer={<LastEdited by={module.updatedBy} at={module.updatedAt} />}
       />
+      <hr />
+      <ModuleActivityFeed moduleId={moduleId} />
     </article>
   );
 }

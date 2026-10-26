@@ -6,9 +6,10 @@ import type { DiscordStatusSource } from '../../core/discord.js';
 import type { CachedChannel, CachedGuild, GuildCache } from '../../core/guild-cache.js';
 import { createLogger } from '../../core/logger.js';
 import {
+  createActivityStore,
   createConfigStore,
   createModuleRuntime,
-  type ActivityEntryInput,
+  type ActivityStore,
   type AnyModule,
   type ModuleRuntime,
 } from '../../core/modules/index.js';
@@ -108,8 +109,8 @@ export interface TestApp {
   clock: Clock;
   /** The Module runtime behind the API (not started; switch Modules on through the API or the runtime). */
   runtime: ModuleRuntime;
-  /** Activity entries the core wrote, in order. */
-  activity: ActivityEntryInput[];
+  /** The real SQLite Activity store on the test DB (stamped with `clock`); read with `listActivity`. */
+  activity: ActivityStore;
   /** The fake guild/channel cache behind the API; add guilds and channels to it. */
   guilds: FakeGuildCache;
   /**
@@ -126,7 +127,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
   runMigrations(handle);
   const clock = createClock();
   const oidc = createStubOidc(clock);
-  const activity: ActivityEntryInput[] = [];
+  const activity = createActivityStore(handle.db, { now: clock.now });
   const guilds = options.guilds ?? createFakeGuildCache();
   const runtime = createModuleRuntime({
     modules: options.modules ?? [],
@@ -142,10 +143,11 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
       },
     },
     logger: createLogger('silent'),
-    activity: { write: (entry) => void activity.push(entry) },
+    activity,
   });
   const app = createApp({
     db: handle,
+    activity,
     modules: runtime,
     guilds,
     ...(options.clientDir ? { clientDir: options.clientDir } : {}),

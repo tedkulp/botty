@@ -163,7 +163,7 @@ describe('PUT /api/modules/:id/config', () => {
       updatedBy: { sub: 'sub-ted', name: 'Ted' },
     });
     expect(typeof body.updatedAt).toBe('string');
-    expect(t.activity).toContainEqual(
+    expect(t.activity.listActivity({ moduleId: 'linkish' })).toContainEqual(
       expect.objectContaining({ moduleId: 'linkish', actor: { sub: 'sub-ted', name: 'Ted' } }),
     );
   });
@@ -224,7 +224,7 @@ describe('POST /api/modules/:id/enabled', () => {
       lastError: null,
     });
     expect(seen).toHaveLength(1);
-    expect(t.activity).toContainEqual(
+    expect(t.activity.listActivity({ moduleId: 'linkish' })).toContainEqual(
       expect.objectContaining({ moduleId: 'linkish', message: 'switched on globally', actor: { sub: 'sub-ted', name: 'Ted' } }),
     );
     const list = await json(await call('/api/modules', { cookie }));

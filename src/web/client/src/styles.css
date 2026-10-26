@@ -436,3 +436,32 @@ button.link {
 .orphans {
   margin-top: 16px;
 }
+.activity-filters {
+  margin: 4px 0 8px;
+}
+.activity-filters select {
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  max-width: 50%;
+}
+.activity-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.activity-list li {
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.activity-list li:first-child {
+  border-top: none;
+}
+.activity-list .row {
+  flex-wrap: wrap;
+}
+.activity-message {
+  overflow-wrap: anywhere;
+}

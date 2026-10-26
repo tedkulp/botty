@@ -51,13 +51,14 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
     logger,
     intents: deriveIntents(SUPPORTED_EVENTS),
   });
+  const activity = createActivityStore(db.db);
   const runtime = createModuleRuntime({
     modules,
     store: createConfigStore(db.db),
     events: discord.client,
     channels: discordChannelResolver(discord.client),
     logger,
-    activity: createActivityStore(db.db),
+    activity,
   });
   const oidc = createOidcProvider({
     issuer: env.OIDC_ISSUER,
@@ -67,6 +68,7 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
   const app = createApp({
     db,
     modules: runtime,
+    activity,
     guilds: discordGuildCache(discord.client),
     clientDir: builtClientDir(),
     discord: discord.status,

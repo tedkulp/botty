@@ -25,6 +25,17 @@ export type ChannelNode = ChannelCategory['channels'][number];
 export type GuildOverview = InferResponseType<GuildRoute['overview']['$get'], 200>;
 export type ChannelModules = InferResponseType<Rpc['api']['channels'][':id']['modules']['$get'], 200>;
 export type ChannelModule = Extract<ChannelModules, { available: true }>['modules'][number];
+export type ActivityPage = InferResponseType<ModuleRoute['activity']['$get'], 200>;
+export type ActivityItem = ActivityPage['entries'][number];
+
+/** Filters and paging for a Module's Activity feed. */
+export interface ActivityFilter {
+  guildId?: string;
+  channelId?: string;
+  limit?: number;
+  /** `nextBefore` of the previous page. */
+  before?: number;
+}
 export type OrphanList = InferResponseType<Rpc['api']['orphans']['$get'], 200>;
 export type Orphan = Extract<OrphanList, { available: true }>['orphans'][number];
 
@@ -169,6 +180,15 @@ export function createApi(options: ApiOptions = {}) {
       }
       check(res, 200);
       return { ok: true, module: (await res.json()) as ChannelModule };
+    },
+
+    /** A Module's Activity entries, newest first; `nextBefore` is null on the last page. */
+    async listActivity(moduleId: string, filter: ActivityFilter = {}): Promise<ActivityPage> {
+      const query: Record<string, string> = {};
+      for (const [key, value] of Object.entries(filter)) if (value !== undefined && value !== '') query[key] = String(value);
+      const res = await rpc.api.modules[':id'].activity.$get({ param: { id: moduleId }, query });
+      check(res, 200);
+      return (await res.json()) as ActivityPage;
     },
 
     async listOrphans(): Promise<OrphanList> {

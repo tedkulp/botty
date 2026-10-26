@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { pingDatabase, type DatabaseHandle } from '../../core/db/index.js';
 import type { DiscordStatusSource } from '../../core/discord.js';
 import type { GuildCache } from '../../core/guild-cache.js';
-import { createConfigStore, invitePermissions, type ModuleRuntime } from '../../core/modules/index.js';
+import { createConfigStore, invitePermissions, type ActivityStore, type ModuleRuntime } from '../../core/modules/index.js';
+import { activityRoutes } from './api/activity.js';
 import { channelsRoutes } from './api/channels.js';
 import { guildsRoutes } from './api/guilds.js';
 import { modulesRoutes } from './api/modules.js';
@@ -17,6 +18,8 @@ export interface AppDeps {
   auth: AuthConfig;
   /** The Module runtime. Dashboard writes go through it so Activity entries get written. */
   modules: ModuleRuntime;
+  /** Where the runtime writes Activity entries; the API reads the feeds from it. */
+  activity: ActivityStore;
   /** Guilds and channels the bot can see (the discord.js cache in production, a fake in tests). */
   guilds: GuildCache;
   /** Directory holding the built SPA (`index.html` + assets). Omit to serve no SPA (tests, `npm run dev`). */
@@ -32,7 +35,7 @@ export interface AppDeps {
  * read `c.var.admin`; `/api/me` is the one exception. New dashboard routes go
  * into this chain (it is what the client's RPC types are built from).
  */
-export function createApp({ db, discord, auth, modules, guilds, clientDir }: AppDeps) {
+export function createApp({ db, discord, auth, modules, activity, guilds, clientDir }: AppDeps) {
   // The store is stateless (no cache), so the API gets its own for reads.
   const store = createConfigStore(db.db);
   const permissions = invitePermissions(modules.modules).toString();
@@ -54,6 +57,7 @@ export function createApp({ db, discord, auth, modules, guilds, clientDir }: App
     .use('/api/*', requireAdmin)
     .get('/api/status', (c) => c.json({ discord: discord.state(), inviteUrl: inviteUrl() }))
     .route('/api/modules', modulesRoutes({ runtime: modules, store }))
+    .route('/api/modules', activityRoutes({ runtime: modules, activity, guilds }))
     .route('/api/guilds', guildsRoutes({ runtime: modules, store, discord, guilds }))
     .route('/api/channels', channelsRoutes({ runtime: modules, store, discord, guilds }))
     .route('/api/orphans', orphansRoutes({ runtime: modules, store, discord, guilds }));
