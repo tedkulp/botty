@@ -1,5 +1,6 @@
 export * from './define.js';
 export * from './activity.js';
+export * from './activity-store.js';
 export * from './config-store.js';
 export * from './enablement.js';
 export * from './permissions.js';

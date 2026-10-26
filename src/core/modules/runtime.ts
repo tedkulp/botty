@@ -131,9 +131,11 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
     }
   }
 
-  function guildOf(channelId: string | undefined): string | undefined {
-    if (!channelId) return undefined;
-    return channels.resolve(channelId).guildId ?? undefined;
+  /** Where an Activity entry belongs: a thread resolves to its parent channel, plus the guild. */
+  function placeOf(channelId: string | undefined): { channelId?: string; guildId?: string } {
+    if (!channelId) return {};
+    const resolved = channels.resolve(channelId);
+    return { channelId: resolved.channelId, ...(resolved.guildId ? { guildId: resolved.guildId } : {}) };
   }
 
   function setStatus(state: ModuleState, level: StatusLevel, message: string | undefined, announce: boolean) {
@@ -158,11 +160,9 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
     if (channelId) state.channelErrors.set(channelId, record);
     log.error({ err, moduleId: state.module.id, channelId }, `Module ${where} failed`);
     setStatus(state, 'error', message, false);
-    const guildId = guildOf(channelId);
     writeActivity({
       moduleId: state.module.id,
-      ...(guildId ? { guildId } : {}),
-      ...(channelId ? { channelId } : {}),
+      ...placeOf(channelId),
       level: 'error',
       message: `${where} failed: ${message}`,
     });
@@ -243,8 +243,7 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
       },
       log: logger.child({ module: module.id }),
       activity(entry) {
-        const guildId = guildOf(entry.channelId);
-        writeActivity({ moduleId: module.id, ...(guildId ? { guildId } : {}), ...entry });
+        writeActivity({ moduleId: module.id, ...entry, ...placeOf(entry.channelId) });
       },
     };
   }

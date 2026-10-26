@@ -1,6 +1,6 @@
 // Drizzle table definitions for core storage. `npm run db:generate` turns
 // changes here into SQL migrations under ./drizzle.
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 /**
  * One row per (module_id, scope, channel_id). `scope` is `global` or `channel`;
@@ -38,3 +38,26 @@ export const sessions = sqliteTable('sessions', {
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 });
+
+/**
+ * Activity entries: durable per-Module history shown in the dashboard.
+ * References only (jump-links, display names, URLs, bookmark ids), never message text.
+ * Pruned on insert: older than 30 days, and beyond the newest 1000 per Module.
+ */
+export const activityEntries = sqliteTable(
+  'activity_entries',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    moduleId: text('module_id').notNull(),
+    guildId: text('guild_id'),
+    /** The parent channel when the entry came from a thread. */
+    channelId: text('channel_id'),
+    level: text('level', { enum: ['info', 'warn', 'error'] }).notNull(),
+    message: text('message').notNull(),
+    link: text('link'),
+    actorSub: text('actor_sub'),
+    actorName: text('actor_name'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [index('activity_entries_module_created_idx').on(t.moduleId, t.createdAt)],
+);
