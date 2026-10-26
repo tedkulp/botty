@@ -1,0 +1,61 @@
+import { join } from 'node:path';
+import { serve, type ServerType } from '@hono/node-server';
+import type { Env } from './core/env.js';
+import type { Logger } from './core/logger.js';
+import { openDatabase, runMigrations, type DatabaseHandle } from './core/db/index.js';
+import { createDiscordConnection, type DiscordConnection } from './core/discord.js';
+import { createApp } from './web/server/app.js';
+
+export const SHUTDOWN_TIMEOUT_MS = 10_000;
+
+export interface Botty {
+  db: DatabaseHandle;
+  discord: DiscordConnection;
+  server: ServerType;
+  /** Close HTTP, destroy the Discord client, close SQLite. Idempotent. */
+  stop(): Promise<void>;
+}
+
+/**
+ * Startup order: migrations -> HTTP -> Discord login. Throws if migrations fail.
+ * Discord login runs in the background and never blocks or fails startup.
+ */
+export async function start(env: Env, logger: Logger): Promise<Botty> {
+  const db = openDatabase(join(env.DATA_DIR, 'botty.db'));
+  try {
+    runMigrations(db);
+  } catch (err) {
+    db.close();
+    throw err;
+  }
+  logger.info('migrations applied');
+
+  const discord = createDiscordConnection({ token: env.DISCORD_TOKEN, logger });
+  const app = createApp({ db, discord: discord.status });
+
+  const server = await new Promise<ServerType>((resolve, reject) => {
+    const s = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
+      logger.info({ port: info.port }, 'http listening');
+      resolve(s);
+    });
+    s.once('error', reject);
+  });
+
+  void discord.login();
+
+  let stopping: Promise<void> | undefined;
+  const stop = () =>
+    (stopping ??= (async () => {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        if ('closeAllConnections' in server) server.closeAllConnections();
+      });
+      logger.info('http closed');
+      await discord.destroy();
+      logger.info('discord destroyed');
+      db.close();
+      logger.info('sqlite closed');
+    })());
+
+  return { db, discord, server, stop };
+}
