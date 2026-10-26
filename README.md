@@ -38,7 +38,8 @@ Serve Botty at the root of its own host (e.g. `botty.example.com`, not a sub-pat
 
 ```sh
 npm ci
-npm run dev          # bot + API, tsx watch
+npm run dev:all      # both of the below in one terminal
+npm run dev          # bot + API, tsx watch (loads .env if present)
 npm run dev:client   # dashboard with HMR (proxies /api and /auth)
 npm run typecheck
 npm test
