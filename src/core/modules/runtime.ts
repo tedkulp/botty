@@ -67,6 +67,7 @@ export interface ModuleRuntime {
   isActive(id: string): boolean;
   status(id: string): ModuleStatus;
   lastError(id: string): ErrorRecord | null;
+  /** Last handler error in a channel; errors in its threads count toward it. */
   lastErrorIn(id: string, channelId: string): ErrorRecord | null;
   /** Resolves once every in-flight dispatch and lifecycle change has finished. */
   settled(): Promise<void>;
@@ -156,13 +157,15 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
   function recordError(state: ModuleState, err: unknown, where: string, channelId?: string) {
     const message = errorMessage(err);
     const record: ErrorRecord = { message, at: new Date(), ...(channelId ? { channelId } : {}) };
+    const place = placeOf(channelId);
     state.lastError = record;
-    if (channelId) state.channelErrors.set(channelId, record);
+    // Keyed by the parent channel, so a thread's error shows on its channel's page.
+    if (place.channelId) state.channelErrors.set(place.channelId, record);
     log.error({ err, moduleId: state.module.id, channelId }, `Module ${where} failed`);
     setStatus(state, 'error', message, false);
     writeActivity({
       moduleId: state.module.id,
-      ...placeOf(channelId),
+      ...place,
       level: 'error',
       message: `${where} failed: ${message}`,
     });

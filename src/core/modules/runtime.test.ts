@@ -125,6 +125,18 @@ describe('module runtime routing', () => {
     );
   });
 
+  it('records a thread handler error as the last error in its parent channel', async () => {
+    const bad = recorder('bad', { channelDefault: true, throws: true });
+    store.setGlobalEnabled('bad', true, admin);
+    const rt = runtime([bad.module]);
+    await rt.start();
+
+    await emit(rt, 't1');
+
+    expect(rt.lastErrorIn('bad', 'c1')).toMatchObject({ message: 'bad exploded' });
+    expect(rt.lastErrorIn('bad', 'c2')).toBeNull();
+  });
+
   it('subscribes to the event source only while some Module listens', async () => {
     const a = recorder('a', { channelDefault: true });
     const rt = runtime([a.module]);
