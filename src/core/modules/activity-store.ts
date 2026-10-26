@@ -68,10 +68,12 @@ export function createActivityStore(db: Db, options: ActivityStoreOptions = {}):
             createdAt,
           })
           .run();
-        const ofModule = eq(activityEntries.moduleId, entry.moduleId);
+        // Age applies to every Module, so a Module that stops writing still loses old entries.
         tx.delete(activityEntries)
-          .where(and(ofModule, lt(activityEntries.createdAt, new Date(createdAt.getTime() - MAX_AGE_MS))))
+          .where(lt(activityEntries.createdAt, new Date(createdAt.getTime() - MAX_AGE_MS)))
           .run();
+        // The count cap only ever touches the writing Module.
+        const ofModule = eq(activityEntries.moduleId, entry.moduleId);
         const cutoff = tx
           .select({ id: activityEntries.id })
           .from(activityEntries)

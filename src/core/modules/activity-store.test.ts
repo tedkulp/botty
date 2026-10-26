@@ -89,7 +89,7 @@ describe('activity pruning on insert', () => {
     return out.map((e) => e.message);
   };
 
-  it('removes that Module’s entries older than 30 days, keeping the others’', () => {
+  it('removes entries older than 30 days, for every Module', () => {
     store.write({ moduleId: 'm', level: 'info', message: 'old' });
     store.write({ moduleId: 'other', level: 'info', message: 'old other' });
     now = new Date(now.getTime() + 30 * DAY - 1);
@@ -100,7 +100,7 @@ describe('activity pruning on insert', () => {
     store.write({ moduleId: 'm', level: 'info', message: 'new' });
 
     expect(all('m')).toEqual(['new', 'within 30 days']);
-    expect(all('other')).toEqual(['old other']);
+    expect(all('other')).toEqual([]);
   });
 
   it('the 1001st entry evicts the oldest, and only for that Module', () => {
