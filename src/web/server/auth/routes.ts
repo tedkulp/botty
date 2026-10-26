@@ -3,7 +3,7 @@ import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie';
 import type { CookieOptions } from 'hono/utils/cookie';
 import type { Db } from '../../../core/db/index.js';
 import type { OidcProvider } from './oidc.js';
-import { createSession, deleteSession } from './sessions.js';
+import { createSession, deleteSession, pruneSessions } from './sessions.js';
 
 export interface AuthConfig {
   oidc: OidcProvider;
@@ -88,7 +88,9 @@ export function authRoutes(db: Db, config: AuthConfig) {
       }
       if (!tokens.groups.includes(config.adminGroup)) return c.text('Forbidden: not an Admin.', 403);
 
-      const session = createSession(db, tokens, now());
+      const signedInAt = now();
+      pruneSessions(db, signedInAt, SESSION_MAX_AGE_S * 1000);
+      const session = createSession(db, tokens, signedInAt);
       await setSignedCookie(c, SESSION_COOKIE, session.id, config.sessionSecret, cookieOptions(config, SESSION_MAX_AGE_S));
       return c.redirect(pkce.returnTo, 302);
     })

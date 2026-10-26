@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, lt, or } from 'drizzle-orm';
 import type { Db } from '../../../core/db/index.js';
 import { sessions } from '../../../core/db/schema.js';
 import type { OidcTokens } from './oidc.js';
@@ -40,4 +40,19 @@ export function applyRefresh(db: Db, session: Session, tokens: OidcTokens): Sess
 
 export function deleteSession(db: Db, id: string): void {
   db.delete(sessions).where(eq(sessions.id, id)).run();
+}
+
+/**
+ * Delete sessions that can never be used again: past `maxAgeMs` since sign-in
+ * (the cookie is gone), or expired with no refresh token to renew them.
+ */
+export function pruneSessions(db: Db, now: Date, maxAgeMs: number): void {
+  db.delete(sessions)
+    .where(
+      or(
+        lt(sessions.createdAt, new Date(now.getTime() - maxAgeMs)),
+        and(isNull(sessions.refreshToken), lt(sessions.expiresAt, now)),
+      ),
+    )
+    .run();
 }

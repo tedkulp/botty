@@ -190,6 +190,41 @@ describe('session refresh', () => {
   });
 });
 
+describe('expired session pruning', () => {
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+
+  it('deletes expired sessions without a refresh token when someone signs in', async () => {
+    const { signIn, clock, handle } = setup();
+    await signIn({ refreshToken: undefined });
+    clock.advance(2 * HOUR);
+
+    await signIn();
+
+    expect(sessionCount(handle)).toBe(1);
+  });
+
+  it('deletes sessions past the cookie lifetime when someone signs in', async () => {
+    const { signIn, clock, handle } = setup();
+    await signIn();
+    clock.advance(30 * DAY + 1);
+
+    await signIn();
+
+    expect(sessionCount(handle)).toBe(1);
+  });
+
+  it('keeps an expired session that can still be refreshed', async () => {
+    const { signIn, clock, handle } = setup();
+    await signIn();
+    clock.advance(2 * HOUR);
+
+    await signIn();
+
+    expect(sessionCount(handle)).toBe(2);
+  });
+});
+
 describe('POST /auth/logout', () => {
   it('deletes the session and redirects to the provider end-session endpoint', async () => {
     const { app, signIn, handle } = setup();
