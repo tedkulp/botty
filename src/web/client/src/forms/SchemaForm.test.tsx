@@ -185,6 +185,8 @@ describe('forms for every registered Module', () => {
           render(<SchemaForm schema={schemas[scope]} value={value} onSave={async () => ({ ok: true })} />),
         ).not.toThrow();
         expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+        // A new Module needs no UI code: every field must be one the renderer can edit.
+        expect(screen.queryByText(/not editable here/)).toBeNull();
       });
     }
   }
