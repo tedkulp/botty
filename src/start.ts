@@ -5,6 +5,7 @@ import type { Logger } from './core/logger.js';
 import { openDatabase, runMigrations, type DatabaseHandle } from './core/db/index.js';
 import { createDiscordConnection, type DiscordConnection } from './core/discord.js';
 import { createApp } from './web/server/app.js';
+import { builtClientDir } from './web/server/spa.js';
 import {
   createConfigStore,
   createModuleRuntime,
@@ -62,6 +63,8 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
   });
   const app = createApp({
     db,
+    modules: runtime,
+    clientDir: builtClientDir(),
     discord: discord.status,
     auth: {
       oidc,

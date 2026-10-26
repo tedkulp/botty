@@ -110,8 +110,7 @@ describe('/api/* gate', () => {
 
     const res = await app.request('/api/modules', { headers: { Cookie: cookie } });
 
-    // No such route yet: past the gate means 404, not 401.
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
   });
 });
 

@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -19,8 +19,10 @@ export interface DatabaseHandle {
 /**
  * The drizzle-kit migrations folder at the package root. Same relative depth
  * from `src/core/db` and `dist/core/db`, so it resolves in dev and in builds.
+ * (Not `new URL('…', import.meta.url)`: Vite rewrites that pattern into an
+ * asset URL when the dashboard's jsdom tests import server code.)
  */
-export const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../../drizzle', import.meta.url));
+export const MIGRATIONS_FOLDER = join(dirname(fileURLToPath(import.meta.url)), '../../../drizzle');
 
 /** Open (creating if needed) a SQLite database. Pass `:memory:` for tests. */
 export function openDatabase(path: string): DatabaseHandle {

@@ -5,4 +5,5 @@ export * from './enablement.js';
 export * from './permissions.js';
 export * from './runtime.js';
 export * from './schema-tools.js';
+export * from './json-schema.js';
 export * from './discord-adapter.js';

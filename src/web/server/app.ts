@@ -1,13 +1,20 @@
 import { Hono } from 'hono';
 import { pingDatabase, type DatabaseHandle } from '../../core/db/index.js';
 import type { DiscordStatusSource } from '../../core/discord.js';
+import { createConfigStore, type ModuleRuntime } from '../../core/modules/index.js';
+import { modulesRoutes } from './api/modules.js';
 import { loadSession, requireAdmin, type AuthEnv } from './auth/middleware.js';
 import { authRoutes, type AuthConfig } from './auth/routes.js';
+import { spaRoutes } from './spa.js';
 
 export interface AppDeps {
   db: DatabaseHandle;
   discord: DiscordStatusSource;
   auth: AuthConfig;
+  /** The Module runtime. Dashboard writes go through it so Activity entries get written. */
+  modules: ModuleRuntime;
+  /** Directory holding the built SPA (`index.html` + assets). Omit to serve no SPA (tests, `npm run dev`). */
+  clientDir?: string;
 }
 
 /**
@@ -16,9 +23,12 @@ export interface AppDeps {
  * OIDC (see `testing.ts`).
  *
  * Every `/api/*` route registered after `requireAdmin` needs a session and can
- * read `c.var.admin`; `/api/me` is the one exception.
+ * read `c.var.admin`; `/api/me` is the one exception. New dashboard routes go
+ * into this chain (it is what the client's RPC types are built from).
  */
-export function createApp({ db, discord, auth }: AppDeps) {
+export function createApp({ db, discord, auth, modules, clientDir }: AppDeps) {
+  // The store is stateless (no cache), so the API gets its own for reads.
+  const store = createConfigStore(db.db);
   const app = new Hono<AuthEnv>()
     .get('/healthz', (c) => {
       const dbOk = pingDatabase(db);
@@ -28,7 +38,13 @@ export function createApp({ db, discord, auth }: AppDeps) {
     .route('/auth', authRoutes(db.db, auth))
     .use('/api/*', loadSession(db.db, auth))
     .get('/api/me', (c) => c.json({ admin: c.var.admin }))
-    .use('/api/*', requireAdmin);
+    .use('/api/*', requireAdmin)
+    .get('/api/status', (c) => c.json({ discord: discord.state() }))
+    .route('/api/modules', modulesRoutes({ runtime: modules, store }));
+
+  // Unknown /api paths stay JSON 404s; everything else may fall through to the SPA.
+  app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
+  if (clientDir) app.route('/', spaRoutes(clientDir));
 
   return app;
 }

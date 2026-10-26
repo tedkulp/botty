@@ -1,7 +1,16 @@
 // Test support for HTTP tests: build the app on `:memory:` SQLite with OIDC
 // stubbed, and sign an Admin in through the real login/callback routes.
+import { EventEmitter } from 'node:events';
 import { openDatabase, runMigrations, type DatabaseHandle } from '../../core/db/index.js';
 import type { DiscordStatusSource } from '../../core/discord.js';
+import { createLogger } from '../../core/logger.js';
+import {
+  createConfigStore,
+  createModuleRuntime,
+  type ActivityEntryInput,
+  type AnyModule,
+  type ModuleRuntime,
+} from '../../core/modules/index.js';
 import { createApp, type App } from './app.js';
 import type { OidcProvider, OidcTokens } from './auth/oidc.js';
 
@@ -83,6 +92,10 @@ export function createStubOidc(clock: Clock): StubOidc {
 export interface TestAppOptions {
   publicUrl?: string;
   discord?: DiscordStatusSource;
+  /** Modules the runtime knows about (default: none). Channels resolve to themselves in guild 'guild-1'. */
+  modules?: readonly AnyModule[];
+  /** Serve a built SPA from this directory. */
+  clientDir?: string;
 }
 
 export interface TestApp {
@@ -90,6 +103,10 @@ export interface TestApp {
   handle: DatabaseHandle;
   oidc: StubOidc;
   clock: Clock;
+  /** The Module runtime behind the API (not started; switch Modules on through the API or the runtime). */
+  runtime: ModuleRuntime;
+  /** Activity entries the core wrote, in order. */
+  activity: ActivityEntryInput[];
   /**
    * Sign in through `/auth/login` + `/auth/callback` with the stub returning
    * `tokens` (an Admin by default). Returns the `Cookie` header to send.
@@ -104,8 +121,19 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
   runMigrations(handle);
   const clock = createClock();
   const oidc = createStubOidc(clock);
+  const activity: ActivityEntryInput[] = [];
+  const runtime = createModuleRuntime({
+    modules: options.modules ?? [],
+    store: createConfigStore(handle.db),
+    events: new EventEmitter(),
+    channels: { resolve: (channelId) => ({ channelId, guildId: 'guild-1' }) },
+    logger: createLogger('silent'),
+    activity: { write: (entry) => void activity.push(entry) },
+  });
   const app = createApp({
     db: handle,
+    modules: runtime,
+    ...(options.clientDir ? { clientDir: options.clientDir } : {}),
     discord: options.discord ?? { state: () => 'ready' },
     auth: {
       oidc,
@@ -128,7 +156,19 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     return cookiePairs(callback, 'botty_session');
   }
 
-  return { app, handle, oidc, clock, signIn, close: () => handle.close() };
+  return {
+    app,
+    handle,
+    oidc,
+    clock,
+    runtime,
+    activity,
+    signIn,
+    close: () => {
+      void runtime.stop();
+      handle.close();
+    },
+  };
 }
 
 /** `name=value` pairs from a response's Set-Cookie headers, joined for a `Cookie` header. */
