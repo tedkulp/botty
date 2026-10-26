@@ -7,6 +7,7 @@ import { createDiscordConnection, type DiscordConnection } from './core/discord.
 import { createApp } from './web/server/app.js';
 import { builtClientDir } from './web/server/spa.js';
 import {
+  createActivityStore,
   createConfigStore,
   createModuleRuntime,
   deriveIntents,
@@ -55,6 +56,7 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
     events: discord.client,
     channels: discordChannelResolver(discord.client),
     logger,
+    activity: createActivityStore(db.db),
   });
   const oidc = createOidcProvider({
     issuer: env.OIDC_ISSUER,

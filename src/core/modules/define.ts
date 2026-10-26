@@ -19,8 +19,12 @@ export interface ModuleStatus {
 
 export type ActivityLevel = 'info' | 'warn' | 'error';
 
-/** What a Module passes to `ctx.activity()`. References only, never message text. */
+/**
+ * What a Module passes to `ctx.activity()`. References only (jump-links, author
+ * display names, URLs, bookmark ids), never Discord message text.
+ */
 export interface ModuleActivityInput {
+  /** The core fills in the guild and resolves a thread to its parent channel. */
   channelId?: string;
   level: ActivityLevel;
   message: string;
