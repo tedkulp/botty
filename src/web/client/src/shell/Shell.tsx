@@ -7,19 +7,24 @@ import { useDashboard } from '../app/dashboard.js';
 export interface ShellProps {
   /** Fixed entries at the top of the rail (⚙️ Modules). */
   rail: ReactNode;
-  /** Guild icons under the divider (#21). */
+  /** Guild icons under the divider. */
   guilds: ReactNode;
   children: ReactNode;
 }
 
 export function Shell({ rail, guilds, children }: ShellProps) {
-  const { admin, refresh, discord } = useDashboard();
+  const { admin, refresh, discord, inviteUrl } = useDashboard();
   return (
     <div className="app">
       {discord === 'down' && <DiscordBanner />}
       <header className="topbar">
         <span className="brand">botty</span>
         <span className="grow" />
+        {inviteUrl && (
+          <a className="btn small" href={inviteUrl} target="_blank" rel="noreferrer">
+            Invite bot
+          </a>
+        )}
         <button type="button" className="btn small" onClick={refresh}>
           Refresh
         </button>

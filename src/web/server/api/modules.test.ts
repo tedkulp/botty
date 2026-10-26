@@ -83,7 +83,7 @@ describe('GET /api/status', () => {
     const res = await call('/api/status', { cookie });
 
     expect(res.status).toBe(200);
-    expect(await json(res)).toEqual({ discord: 'down' });
+    expect(await json(res)).toMatchObject({ discord: 'down' });
   });
 });
 

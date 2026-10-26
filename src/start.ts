@@ -4,6 +4,7 @@ import type { Env } from './core/env.js';
 import type { Logger } from './core/logger.js';
 import { openDatabase, runMigrations, type DatabaseHandle } from './core/db/index.js';
 import { createDiscordConnection, type DiscordConnection } from './core/discord.js';
+import { discordGuildCache } from './core/guild-cache.js';
 import { createApp } from './web/server/app.js';
 import { builtClientDir } from './web/server/spa.js';
 import {
@@ -66,6 +67,7 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
   const app = createApp({
     db,
     modules: runtime,
+    guilds: discordGuildCache(discord.client),
     clientDir: builtClientDir(),
     discord: discord.status,
     auth: {

@@ -7,6 +7,8 @@ export interface Dashboard {
   api: Api;
   admin: Admin;
   discord: DiscordState | undefined;
+  /** The bot's invite link (permissions = union of every Module's); null before the bot has logged in. */
+  inviteUrl: string | null;
   route: Route;
   navigate(route: Route): void;
   /** Bumped by the Refresh button; screens list it in their load deps. */

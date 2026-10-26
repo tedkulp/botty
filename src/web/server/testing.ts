@@ -3,6 +3,7 @@
 import { EventEmitter } from 'node:events';
 import { openDatabase, runMigrations, type DatabaseHandle } from '../../core/db/index.js';
 import type { DiscordStatusSource } from '../../core/discord.js';
+import type { CachedChannel, CachedGuild, GuildCache } from '../../core/guild-cache.js';
 import { createLogger } from '../../core/logger.js';
 import {
   createConfigStore,
@@ -96,6 +97,8 @@ export interface TestAppOptions {
   modules?: readonly AnyModule[];
   /** Serve a built SPA from this directory. */
   clientDir?: string;
+  /** The guild/channel cache (default: an empty fake). */
+  guilds?: FakeGuildCache;
 }
 
 export interface TestApp {
@@ -107,6 +110,8 @@ export interface TestApp {
   runtime: ModuleRuntime;
   /** Activity entries the core wrote, in order. */
   activity: ActivityEntryInput[];
+  /** The fake guild/channel cache behind the API; add guilds and channels to it. */
+  guilds: FakeGuildCache;
   /**
    * Sign in through `/auth/login` + `/auth/callback` with the stub returning
    * `tokens` (an Admin by default). Returns the `Cookie` header to send.
@@ -122,17 +127,27 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
   const clock = createClock();
   const oidc = createStubOidc(clock);
   const activity: ActivityEntryInput[] = [];
+  const guilds = options.guilds ?? createFakeGuildCache();
   const runtime = createModuleRuntime({
     modules: options.modules ?? [],
     store: createConfigStore(handle.db),
     events: new EventEmitter(),
-    channels: { resolve: (channelId) => ({ channelId, guildId: 'guild-1' }) },
+    // Threads resolve to their parent, as the discord.js resolver does; unknown channels to themselves in 'guild-1'.
+    channels: {
+      resolve: (channelId) => {
+        const channel = guilds.channel(channelId);
+        if (!channel) return { channelId, guildId: 'guild-1' };
+        const id = channel.kind === 'thread' && channel.parentId ? channel.parentId : channelId;
+        return { channelId: id, guildId: channel.guildId };
+      },
+    },
     logger: createLogger('silent'),
     activity: { write: (entry) => void activity.push(entry) },
   });
   const app = createApp({
     db: handle,
     modules: runtime,
+    guilds,
     ...(options.clientDir ? { clientDir: options.clientDir } : {}),
     discord: options.discord ?? { state: () => 'ready' },
     auth: {
@@ -163,6 +178,7 @@ export function createTestApp(options: TestAppOptions = {}): TestApp {
     clock,
     runtime,
     activity,
+    guilds,
     signIn,
     close: () => {
       void runtime.stop();
@@ -178,4 +194,59 @@ export function cookiePairs(res: Response, only?: string): string {
     .map((c) => c.split(';')[0]!)
     .filter((pair) => !only || pair.startsWith(`${only}=`))
     .join('; ');
+}
+
+/** Permissions for a fake channel: has exactly the listed ones. */
+export function grants(...names: string[]) {
+  const set = new Set(names);
+  return { has: (permission: string) => set.has(permission) };
+}
+
+/** Every permission a v1 Module asks for, so fake channels are viewable unless a test says otherwise. */
+export const ALL_PERMISSIONS = grants('ViewChannel', 'ReadMessageHistory', 'AddReactions', 'SendMessages');
+
+/** A mutable in-memory GuildCache for tests. */
+export interface FakeGuildCache extends GuildCache {
+  appId: string | null;
+  addGuild(guild: Partial<CachedGuild> & { id: string }): CachedGuild;
+  addChannel(channel: Partial<CachedChannel> & { id: string; guildId: string }): CachedChannel;
+  removeGuild(id: string): void;
+  removeChannel(id: string): void;
+}
+
+export function createFakeGuildCache(): FakeGuildCache {
+  const guildMap = new Map<string, CachedGuild>();
+  const channelMap = new Map<string, CachedChannel>();
+  const fake: FakeGuildCache = {
+    appId: 'app-1',
+    applicationId: () => fake.appId,
+    guilds: () => [...guildMap.values()],
+    guild: (id) => guildMap.get(id) ?? null,
+    channels: (guildId) => [...channelMap.values()].filter((c) => c.guildId === guildId),
+    channel: (id) => channelMap.get(id) ?? null,
+    addGuild(guild) {
+      const full: CachedGuild = { name: `Guild ${guild.id}`, icon: null, ...guild };
+      guildMap.set(full.id, full);
+      return full;
+    },
+    addChannel(channel) {
+      const full: CachedChannel = {
+        name: channel.id,
+        kind: 'text',
+        parentId: null,
+        position: 0,
+        obfuscated: false,
+        permissions: ALL_PERMISSIONS,
+        ...channel,
+      };
+      channelMap.set(full.id, full);
+      return full;
+    },
+    removeGuild(id) {
+      guildMap.delete(id);
+      for (const c of [...channelMap.values()]) if (c.guildId === id) channelMap.delete(c.id);
+    },
+    removeChannel: (id) => void channelMap.delete(id),
+  };
+  return fake;
 }

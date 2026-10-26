@@ -7,6 +7,8 @@ import type { FieldError } from '../forms/fields.js';
 
 type Rpc = ReturnType<typeof hc<App>>;
 type ModuleRoute = Rpc['api']['modules'][':id'];
+type GuildRoute = Rpc['api']['guilds'][':id'];
+type ChannelModuleRoute = Rpc['api']['channels'][':id']['modules'][':moduleId'];
 
 export type Admin = NonNullable<InferResponseType<Rpc['api']['me']['$get']>['admin']>;
 export type DiscordState = InferResponseType<Rpc['api']['status']['$get'], 200>['discord'];
@@ -14,8 +16,20 @@ export type ModuleSummary = InferResponseType<Rpc['api']['modules']['$get'], 200
 export type ModuleDetail = InferResponseType<ModuleRoute['$get'], 200>;
 export type ToggleResult = InferResponseType<ModuleRoute['enabled']['$post'], 200>;
 export type ModuleStatus = ModuleSummary['status'];
+export type BotStatus = InferResponseType<Rpc['api']['status']['$get'], 200>;
+export type GuildList = InferResponseType<Rpc['api']['guilds']['$get'], 200>;
+export type Guild = Extract<GuildList, { available: true }>['guilds'][number];
+export type ChannelTree = InferResponseType<GuildRoute['channels']['$get'], 200>;
+export type ChannelCategory = Extract<ChannelTree, { available: true }>['categories'][number];
+export type ChannelNode = ChannelCategory['channels'][number];
+export type GuildOverview = InferResponseType<GuildRoute['overview']['$get'], 200>;
+export type ChannelModules = InferResponseType<Rpc['api']['channels'][':id']['modules']['$get'], 200>;
+export type ChannelModule = Extract<ChannelModules, { available: true }>['modules'][number];
+export type OrphanList = InferResponseType<Rpc['api']['orphans']['$get'], 200>;
+export type Orphan = Extract<OrphanList, { available: true }>['orphans'][number];
 
 export type SaveConfigResult = { ok: true; module: ModuleDetail } | { ok: false; fieldErrors: FieldError[] };
+export type SaveChannelConfigResult = { ok: true; module: ChannelModule } | { ok: false; fieldErrors: FieldError[] };
 
 /** A response the screen can't do anything sensible with. */
 export class ApiError extends Error {
@@ -70,6 +84,13 @@ export function createApi(options: ApiOptions = {}) {
       return (await res.json()).discord;
     },
 
+    /** Discord's connection state and the bot's invite URL (null before login). */
+    async status(): Promise<BotStatus> {
+      const res = await rpc.api.status.$get();
+      check(res, 200);
+      return await res.json();
+    },
+
     async listModules(): Promise<ModuleSummary[]> {
       const res = await rpc.api.modules.$get();
       check(res, 200);
@@ -98,6 +119,67 @@ export function createApi(options: ApiOptions = {}) {
       const res = await rpc.api.modules[':id'].enabled.$post({ param: { id }, json: { on } });
       check(res, 200);
       return (await res.json()) as ToggleResult;
+    },
+
+    /** Guilds from the bot's cache; `{ available: false }` while Discord is down. */
+    async listGuilds(): Promise<GuildList> {
+      const res = await rpc.api.guilds.$get();
+      check(res, 200);
+      return await res.json();
+    },
+
+    /** A guild's channel tree. A guild not in the cache is an ApiError 404. */
+    async guildChannels(id: string): Promise<ChannelTree> {
+      const res = await rpc.api.guilds[':id'].channels.$get({ param: { id } });
+      check(res, 200);
+      return (await res.json()) as ChannelTree;
+    },
+
+    async guildOverview(id: string): Promise<GuildOverview> {
+      const res = await rpc.api.guilds[':id'].overview.$get({ param: { id } });
+      check(res, 200);
+      return (await res.json()) as GuildOverview;
+    },
+
+    /** One row per Module for a channel pane. */
+    async channelModules(id: string): Promise<ChannelModules> {
+      const res = await rpc.api.channels[':id'].modules.$get({ param: { id } });
+      check(res, 200);
+      return (await res.json()) as ChannelModules;
+    },
+
+    async setChannelEnabled(channelId: string, moduleId: string, on: boolean): Promise<ChannelModule> {
+      const route: ChannelModuleRoute = rpc.api.channels[':id'].modules[':moduleId'];
+      const res = await route.enabled.$post({ param: { id: channelId, moduleId }, json: { on } });
+      check(res, 200);
+      return (await res.json()) as ChannelModule;
+    },
+
+    /** Save Channel config. A 400 with field errors comes back as `{ ok: false }`. */
+    async saveChannelConfig(
+      channelId: string,
+      moduleId: string,
+      config: Record<string, unknown>,
+    ): Promise<SaveChannelConfigResult> {
+      const route: ChannelModuleRoute = rpc.api.channels[':id'].modules[':moduleId'];
+      const res = await route.config.$put({ param: { id: channelId, moduleId }, json: config });
+      if (res.status === 400) {
+        const body = (await res.json()) as { fieldErrors?: FieldError[]; error?: string };
+        if (body.fieldErrors) return { ok: false, fieldErrors: body.fieldErrors };
+      }
+      check(res, 200);
+      return { ok: true, module: (await res.json()) as ChannelModule };
+    },
+
+    async listOrphans(): Promise<OrphanList> {
+      const res = await rpc.api.orphans.$get();
+      check(res, 200);
+      return await res.json();
+    },
+
+    async deleteOrphan(moduleId: string, channelId: string): Promise<void> {
+      const res = await rpc.api.orphans[':moduleId'][':channelId'].$delete({ param: { moduleId, channelId } });
+      check(res, 200);
     },
   };
 }
