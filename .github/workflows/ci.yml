@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/tedkulp/botty
+
+jobs:
+  test:
+    name: Typecheck, test, smoke-test image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: botty:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (bogus Discord token, dummy OIDC)
+        run: |
+          set -euo pipefail
+          docker run -d --name botty -p 3000:3000 \
+            -e DISCORD_TOKEN=bogus-token \
+            -e OIDC_ISSUER=https://id.example.invalid \
+            -e OIDC_CLIENT_ID=ci \
+            -e OIDC_CLIENT_SECRET=ci-secret \
+            -e ADMIN_GROUP=admins \
+            -e SESSION_SECRET=ci-session-secret-at-least-32-characters \
+            -e PUBLIC_URL=http://localhost:3000 \
+            botty:ci
+
+          test "$(docker exec botty id -u)" != "0" || { echo "container runs as root"; exit 1; }
+
+          body=""
+          for _ in $(seq 1 30); do
+            if body=$(curl -fsS http://localhost:3000/healthz); then break; fi
+            sleep 1
+          done
+          echo "healthz: $body"
+          echo "$body" | jq -e '.db == "ok" and .discord == "down"'
+
+          curl -fsS http://localhost:3000/ | grep -qi '<div id="root"' || { echo "SPA not served"; exit 1; }
+
+          start=$(date +%s)
+          docker stop -t 15 botty
+          elapsed=$(( $(date +%s) - start ))
+          code=$(docker inspect -f '{{.State.ExitCode}}' botty)
+          echo "stopped in ${elapsed}s with exit code $code"
+          test "$code" = 0 && test "$elapsed" -lt 10
+
+      - name: Container logs
+        if: always()
+        run: docker logs botty || true
+
+  publish:
+    name: Push multi-arch image to GHCR
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
