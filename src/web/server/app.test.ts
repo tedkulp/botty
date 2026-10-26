@@ -1,21 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { openDatabase, runMigrations, type DatabaseHandle } from '../../core/db/index.js';
 import type { DiscordState } from '../../core/discord.js';
-import { createApp } from './app.js';
+import { createTestApp, type TestApp } from './testing.js';
 
-let handle: DatabaseHandle;
-function freshDb(): DatabaseHandle {
-  handle = openDatabase(':memory:');
-  runMigrations(handle);
-  return handle;
+let t: TestApp;
+function setup(state: DiscordState): TestApp {
+  t = createTestApp({ discord: { state: () => state } });
+  return t;
 }
-afterEach(() => handle?.close());
-
-const discord = (state: DiscordState) => ({ state: () => state });
+afterEach(() => t?.close());
 
 describe('GET /healthz', () => {
   it('returns 200 with db ok and discord ready', async () => {
-    const app = createApp({ db: freshDb(), discord: discord('ready') });
+    const { app } = setup('ready');
 
     const res = await app.request('/healthz');
 
@@ -24,7 +20,7 @@ describe('GET /healthz', () => {
   });
 
   it('stays 200 when Discord is down', async () => {
-    const app = createApp({ db: freshDb(), discord: discord('down') });
+    const { app } = setup('down');
 
     const res = await app.request('/healthz');
 
@@ -33,9 +29,8 @@ describe('GET /healthz', () => {
   });
 
   it('returns 503 when the database check fails', async () => {
-    const db = freshDb();
-    const app = createApp({ db, discord: discord('ready') });
-    db.close();
+    const { app, handle } = setup('ready');
+    handle.close();
 
     const res = await app.request('/healthz');
 
