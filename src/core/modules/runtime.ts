@@ -139,6 +139,11 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
     return { channelId: resolved.channelId, ...(resolved.guildId ? { guildId: resolved.guildId } : {}) };
   }
 
+  /** Where an Activity entry about a stored channel switch or config belongs. */
+  function placeOfRef(channel: ChannelRef): Pick<ActivityEntryInput, 'channelId' | 'guildId'> {
+    return { channelId: channel.channelId, guildId: channel.guildId };
+  }
+
   function setStatus(state: ModuleState, level: StatusLevel, message: string | undefined, announce: boolean) {
     const previous = state.status;
     const next: ModuleStatus = message === undefined ? { level } : { level, message };
@@ -323,8 +328,7 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
       store.setChannelEnabled(id, channel, on, actor);
       writeActivity({
         moduleId: id,
-        guildId: channel.guildId,
-        channelId: channel.channelId,
+        ...placeOfRef(channel),
         level: 'info',
         message: on === null ? 'channel switch reset to default' : `switched ${on ? 'on' : 'off'} in channel`,
         actor,
@@ -342,8 +346,7 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
       store.writeChannelConfig(module, channel, input, actor);
       writeActivity({
         moduleId: id,
-        guildId: channel.guildId,
-        channelId: channel.channelId,
+        ...placeOfRef(channel),
         level: 'info',
         message: 'Channel config edited',
         actor,

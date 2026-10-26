@@ -1,53 +1,40 @@
 import { Hono, type Context } from 'hono';
 import { validator } from 'hono/validator';
-import type { DiscordStatusSource } from '../../../core/discord.js';
-import type { CachedChannel, GuildCache } from '../../../core/guild-cache.js';
+import type { CachedChannel } from '../../../core/guild-cache.js';
 import {
   ConfigValidationError,
   configJsonSchema,
-  isEnabled,
   missingPermissions,
   redactSecrets,
   type AnyModule,
-  type ConfigStore,
-  type ModuleRuntime,
 } from '../../../core/modules/index.js';
 import type { AuthEnv } from '../auth/middleware.js';
 import { isViewable } from './guilds.js';
 import { errorJson, parseToggle, validationFailure, type ConfigInput } from './modules.js';
-
-export interface ChannelsApiDeps {
-  runtime: ModuleRuntime;
-  store: ConfigStore;
-  discord: DiscordStatusSource;
-  guilds: GuildCache;
-}
+import { channelRef, discordReady, findModule, lastEditedJson, type DiscordApiDeps } from './shared.js';
 
 /** `/api/channels`: one channel's Module rows (switch, permissions, Channel config). */
-export function channelsRoutes({ runtime, store, discord, guilds }: ChannelsApiDeps) {
-  const ready = () => discord.state() === 'ready';
+export function channelsRoutes({ runtime, store, discord, guilds }: DiscordApiDeps) {
+  const ready = () => discordReady(discord);
 
   /** One Module row for a channel pane. */
   function row(module: AnyModule, channel: CachedChannel) {
-    const global = store.readGlobal(module).enabled;
     const stored = store.readChannel(module, channel.id);
-    const channelEnabled = stored.enabled ?? module.channelDefault;
     return {
       id: module.id,
       name: module.name,
       /** The switch as shown: the stored channel value, or the Module's channelDefault. */
-      channelEnabled,
-      globalEnabled: global === true,
+      channelEnabled: stored.enabled ?? module.channelDefault,
+      globalEnabled: store.readGlobal(module).enabled === true,
       /** Enabled (in a channel): both switches on. */
-      enabled: isEnabled({ global, channel: stored.enabled, channelDefault: module.channelDefault }),
+      enabled: runtime.isEnabledIn(module.id, channel.id),
       status: runtime.status(module.id),
       lastError: errorJson(runtime.lastErrorIn(module.id, channel.id)),
       missingPermissions: missingPermissions(module, channel.permissions),
       schema: configJsonSchema(module.configSchema.channel),
       config: redactSecrets(module.configSchema.channel, stored.config as Record<string, unknown>),
       needsReview: stored.needsReview,
-      updatedBy: stored.updatedBy,
-      updatedAt: stored.updatedAt?.toISOString() ?? null,
+      ...lastEditedJson(stored),
     };
   }
 
@@ -57,7 +44,7 @@ export function channelsRoutes({ runtime, store, discord, guilds }: ChannelsApiD
     const channel = guilds.channel(c.req.param('id')!);
     if (!channel) return c.json({ error: 'unknown channel' }, 404);
     if (channel.kind === 'thread') return c.json({ error: 'a thread follows its parent channel' }, 400);
-    const module = runtime.modules.find((m) => m.id === c.req.param('moduleId'));
+    const module = findModule(runtime, c.req.param('moduleId'));
     if (!module) return c.json({ error: 'unknown Module' }, 404);
     return { channel, module };
   }
@@ -82,7 +69,7 @@ export function channelsRoutes({ runtime, store, discord, guilds }: ChannelsApiD
       if (target instanceof Response) return target;
       const { channel, module } = target;
       try {
-        runtime.updateChannelConfig(module.id, ref(channel), c.req.valid('json'), c.var.admin!);
+        runtime.updateChannelConfig(module.id, channelRef(channel), c.req.valid('json'), c.var.admin!);
       } catch (err) {
         if (err instanceof ConfigValidationError) return c.json(validationFailure(err), 400);
         throw err;
@@ -93,11 +80,7 @@ export function channelsRoutes({ runtime, store, discord, guilds }: ChannelsApiD
       const target = writeTarget(c);
       if (target instanceof Response) return target;
       const { channel, module } = target;
-      runtime.setModuleChannelEnabled(module.id, ref(channel), c.req.valid('json').on, c.var.admin!);
+      runtime.setModuleChannelEnabled(module.id, channelRef(channel), c.req.valid('json').on, c.var.admin!);
       return c.json(row(module, channel), 200);
     });
-}
-
-function ref(channel: CachedChannel) {
-  return { channelId: channel.id, guildId: channel.guildId };
 }

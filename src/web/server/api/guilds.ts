@@ -1,15 +1,8 @@
 import { Hono } from 'hono';
-import type { DiscordStatusSource } from '../../../core/discord.js';
-import type { CachedChannel, ChannelKind, GuildCache } from '../../../core/guild-cache.js';
-import { isEnabled, type AnyModule, type ConfigStore, type ModuleRuntime } from '../../../core/modules/index.js';
+import type { CachedChannel, ChannelKind } from '../../../core/guild-cache.js';
+import type { ModuleRuntime } from '../../../core/modules/index.js';
 import type { AuthEnv } from '../auth/middleware.js';
-
-export interface GuildsApiDeps {
-  runtime: ModuleRuntime;
-  store: ConfigStore;
-  discord: DiscordStatusSource;
-  guilds: GuildCache;
-}
+import { discordReady, type DiscordApiDeps } from './shared.js';
 
 /** Discord lists voice-like channels after text-like ones within a category. */
 const VOICE_LIKE = new Set<ChannelKind>(['voice', 'stage']);
@@ -36,18 +29,10 @@ export function isViewable(channel: CachedChannel): boolean {
   return channel.permissions?.has('ViewChannel', true) === true;
 }
 
-/**
- * Ids of the Modules Enabled in each (non-thread) channel: on globally AND on
- * for the channel. Reads the global switches once.
- */
-export function enabledModuleIds(modules: readonly AnyModule[], store: ConfigStore) {
-  const globals = modules.map((module) => ({ module, on: store.readGlobal(module).enabled }));
+/** Ids of the Modules Enabled in a (non-thread) channel: on globally AND on for the channel. */
+export function enabledModuleIds(runtime: ModuleRuntime) {
   return (channelId: string): string[] =>
-    globals
-      .filter(({ module, on }) =>
-        isEnabled({ global: on, channel: store.readChannel(module, channelId).enabled, channelDefault: module.channelDefault }),
-      )
-      .map(({ module }) => module.id);
+    runtime.modules.filter((module) => runtime.isEnabledIn(module.id, channelId)).map((module) => module.id);
 }
 
 /**
@@ -73,8 +58,8 @@ export function channelTree(channels: CachedChannel[]) {
 }
 
 /** `/api/guilds`: the server rail, a guild's channel tree and its Module overview. */
-export function guildsRoutes({ runtime, store, discord, guilds }: GuildsApiDeps) {
-  const ready = () => discord.state() === 'ready';
+export function guildsRoutes({ runtime, store, discord, guilds }: DiscordApiDeps) {
+  const ready = () => discordReady(discord);
 
   return new Hono<AuthEnv>()
     .get('/', (c) => {
@@ -86,7 +71,7 @@ export function guildsRoutes({ runtime, store, discord, guilds }: GuildsApiDeps)
       const guild = guilds.guild(c.req.param('id'));
       if (!guild) return c.json({ error: 'unknown guild' }, 404);
       const tree = channelTree(guilds.channels(guild.id));
-      const enabledIn = enabledModuleIds(runtime.modules, store);
+      const enabledIn = enabledModuleIds(runtime);
       // Threads follow their parent, so they show the parent's Enabled Modules.
       const channelJson = (ch: CachedChannel, enabledModules: string[]) => ({
         id: ch.id,
@@ -120,7 +105,7 @@ export function guildsRoutes({ runtime, store, discord, guilds }: GuildsApiDeps)
         .channels(guild.id)
         .filter((ch) => ch.kind !== 'category' && ch.kind !== 'thread')
         .map((ch) => ch.id);
-      const enabledIn = enabledModuleIds(runtime.modules, store);
+      const enabledIn = enabledModuleIds(runtime);
       const counts = new Map<string, number>();
       for (const id of channelIds) for (const m of enabledIn(id)) counts.set(m, (counts.get(m) ?? 0) + 1);
       return c.json(

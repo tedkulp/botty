@@ -3,6 +3,7 @@ import { validator } from 'hono/validator';
 import type { GuildCache } from '../../../core/guild-cache.js';
 import type { ActivityEntry, ActivityStore, ModuleRuntime } from '../../../core/modules/index.js';
 import type { AuthEnv } from '../auth/middleware.js';
+import { findModule } from './shared.js';
 
 export interface ActivityApiDeps {
   runtime: ModuleRuntime;
@@ -66,7 +67,7 @@ export function activityRoutes({ runtime, activity, guilds }: ActivityApiDeps) {
 
   return new Hono<AuthEnv>().get('/:id/activity', parseQuery, (c) => {
     const moduleId = c.req.param('id');
-    if (!runtime.modules.some((m) => m.id === moduleId)) return c.json({ error: 'unknown Module' }, 404);
+    if (!findModule(runtime, moduleId)) return c.json({ error: 'unknown Module' }, 404);
     const { guildId, channelId, limit, before } = c.req.valid('query');
     const query = {
       moduleId,

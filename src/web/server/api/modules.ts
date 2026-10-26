@@ -10,6 +10,7 @@ import {
   type ModuleRuntime,
 } from '../../../core/modules/index.js';
 import type { AuthEnv } from '../auth/middleware.js';
+import { findModule, lastEditedJson } from './shared.js';
 
 export interface ModulesApiDeps {
   /** Writes (switches, config) go through the runtime so the core writes Activity entries. */
@@ -21,10 +22,6 @@ export interface ModulesApiDeps {
 /** JSON shape of a last error. */
 export function errorJson(record: ErrorRecord | null) {
   return record ? { message: record.message, at: record.at.toISOString() } : null;
-}
-
-function findModule(runtime: ModuleRuntime, id: string): AnyModule | undefined {
-  return runtime.modules.find((m) => m.id === id);
 }
 
 /** `/api/modules`: the ⚙️ Modules screen (global switch, status, Global config). */
@@ -46,8 +43,7 @@ export function modulesRoutes({ runtime, store }: ModulesApiDeps) {
       schema: moduleJsonSchemas(module),
       config: redactSecrets(module.configSchema.global, global.config as Record<string, unknown>),
       needsReview: global.needsReview,
-      updatedBy: global.updatedBy,
-      updatedAt: global.updatedAt?.toISOString() ?? null,
+      ...lastEditedJson(global),
     };
   }
 
@@ -100,7 +96,7 @@ export function validationFailure(err: ConfigValidationError) {
 /** A config as submitted by the dashboard form: blank secrets mean unchanged. */
 export type ConfigInput = Record<string, unknown>;
 
-/** The body of a switch request. Shared with #21's channel switch. */
+/** The body of a switch request (global and channel switches). */
 export function parseToggle(value: unknown, c: Context): { on: boolean } | Response {
   const on = (value as { on?: unknown } | null)?.on;
   if (typeof on !== 'boolean') return c.json({ error: '`on` must be a boolean' }, 400);

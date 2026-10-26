@@ -1,23 +1,14 @@
 import { Hono } from 'hono';
-import type { DiscordStatusSource } from '../../../core/discord.js';
-import type { GuildCache } from '../../../core/guild-cache.js';
-import type { ConfigStore, ModuleRuntime } from '../../../core/modules/index.js';
 import type { AuthEnv } from '../auth/middleware.js';
-
-export interface OrphansApiDeps {
-  runtime: ModuleRuntime;
-  store: ConfigStore;
-  discord: DiscordStatusSource;
-  guilds: GuildCache;
-}
+import { discordReady, lastEditedJson, type DiscordApiDeps } from './shared.js';
 
 /**
  * `/api/orphans`: stored channel rows whose channel or guild is no longer in the
  * cache. They are only listed while Discord is ready (otherwise the cache can't
  * tell a vanished channel from a disconnected one) and only deleted on request.
  */
-export function orphansRoutes({ runtime, store, discord, guilds }: OrphansApiDeps) {
-  const ready = () => discord.state() === 'ready';
+export function orphansRoutes({ runtime, store, discord, guilds }: DiscordApiDeps) {
+  const ready = () => discordReady(discord);
 
   function orphans() {
     return runtime.modules.flatMap((module) =>
@@ -35,8 +26,7 @@ export function orphansRoutes({ runtime, store, discord, guilds }: OrphansApiDep
           /** The guild's name when the guild is still there (only the channel vanished). */
           guildName: row.guildId ? (guilds.guild(row.guildId)?.name ?? null) : null,
           enabled: row.enabled,
-          updatedBy: row.updatedBy,
-          updatedAt: row.updatedAt?.toISOString() ?? null,
+          ...lastEditedJson(row),
         })),
     );
   }
@@ -50,7 +40,7 @@ export function orphansRoutes({ runtime, store, discord, guilds }: OrphansApiDep
       if (!ready()) return c.json({ error: 'Discord is unavailable' }, 503);
       const { moduleId, channelId } = c.req.param();
       const orphan = orphans().find((o) => o.moduleId === moduleId && o.channelId === channelId);
-      if (!orphan) return c.json({ error: 'no such orphan' }, 404);
+      if (!orphan) return c.json({ error: 'no such unavailable channel' }, 404);
       store.deleteChannelRow(moduleId, channelId);
       return c.json({ deleted: true as const }, 200);
     });
