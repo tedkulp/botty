@@ -5,12 +5,22 @@ import type { Logger } from './core/logger.js';
 import { openDatabase, runMigrations, type DatabaseHandle } from './core/db/index.js';
 import { createDiscordConnection, type DiscordConnection } from './core/discord.js';
 import { createApp } from './web/server/app.js';
+import {
+  createConfigStore,
+  createModuleRuntime,
+  deriveIntents,
+  discordChannelResolver,
+  SUPPORTED_EVENTS,
+  type ModuleRuntime,
+} from './core/modules/index.js';
+import { modules } from './modules/index.js';
 
 export const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export interface Botty {
   db: DatabaseHandle;
   discord: DiscordConnection;
+  modules: ModuleRuntime;
   server: ServerType;
   /** Close HTTP, destroy the Discord client, close SQLite. Idempotent. */
   stop(): Promise<void>;
@@ -30,7 +40,20 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
   }
   logger.info('migrations applied');
 
-  const discord = createDiscordConnection({ token: env.DISCORD_TOKEN, logger });
+  // Intents must be fixed before login, but Modules subscribe in `setup` (which
+  // may run later, when switched on), so cover every event a Module can use.
+  const discord = createDiscordConnection({
+    token: env.DISCORD_TOKEN,
+    logger,
+    intents: deriveIntents(SUPPORTED_EVENTS),
+  });
+  const runtime = createModuleRuntime({
+    modules,
+    store: createConfigStore(db.db),
+    events: discord.client,
+    channels: discordChannelResolver(discord.client),
+    logger,
+  });
   const app = createApp({ db, discord: discord.status });
 
   const server = await new Promise<ServerType>((resolve, reject) => {
@@ -41,6 +64,8 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
     s.once('error', reject);
   });
 
+  await runtime.start();
+  logger.info({ modules: modules.map((m) => m.id) }, 'modules started');
   void discord.login();
 
   let stopping: Promise<void> | undefined;
@@ -51,11 +76,12 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
         if ('closeAllConnections' in server) server.closeAllConnections();
       });
       logger.info('http closed');
+      await runtime.stop();
       await discord.destroy();
       logger.info('discord destroyed');
       db.close();
       logger.info('sqlite closed');
     })());
 
-  return { db, discord, server, stop };
+  return { db, discord, modules: runtime, server, stop };
 }

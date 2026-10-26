@@ -29,12 +29,6 @@ export function trackConnectionState(client: EventSource): DiscordStatusSource {
   return { state: () => current };
 }
 
-/**
- * Placeholder gateway intents. The Module core derives the real set from the
- * events Modules subscribe to.
- */
-export const PLACEHOLDER_INTENTS: GatewayIntentsString[] = ['Guilds'];
-
 export interface DiscordConnection {
   client: Client;
   status: DiscordStatusSource;
@@ -46,13 +40,14 @@ export interface DiscordConnection {
 export interface CreateDiscordOptions {
   token: string;
   logger: Logger;
-  intents?: GatewayIntentsString[];
+  /** Gateway intents; the Module core derives them with `deriveIntents()`. */
+  intents: GatewayIntentsString[];
 }
 
 export function createDiscordConnection({
   token,
   logger,
-  intents = PLACEHOLDER_INTENTS,
+  intents,
 }: CreateDiscordOptions): DiscordConnection {
   const log = logger.child({ component: 'discord' });
   const client = new Client({ intents: intents.map((name) => GatewayIntentBits[name]) });
