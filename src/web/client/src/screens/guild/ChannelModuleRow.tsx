@@ -2,7 +2,8 @@ import { useState } from 'react';
 import type { ChannelModule } from '../../api/client.js';
 import { useDashboard } from '../../app/dashboard.js';
 import { SchemaForm, type SaveResult } from '../../forms/SchemaForm.js';
-import { LastEdited, Switch } from '../../ui/status.js';
+import { useSwitchRequest } from '../../lib/useSwitchRequest.js';
+import { LastEdited, LastErrorLine, NeedsReviewPill, Switch } from '../../ui/status.js';
 import { RecentActivity } from '../activity/RecentActivity.js';
 
 export interface ChannelModuleRowProps {
@@ -27,23 +28,12 @@ function EnablementPill({ module }: { module: ChannelModule }) {
  */
 export function ChannelModuleRow({ channelId, channelName, module, onChanged }: ChannelModuleRowProps) {
   const { api } = useDashboard();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, toggle } = useSwitchRequest(async (on) =>
+    onChanged(await api.setChannelEnabled(channelId, module.id, on)),
+  );
   const [configuring, setConfiguring] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const hasConfig = Object.keys((module.schema.properties as object | undefined) ?? {}).length > 0;
-
-  async function toggle(on: boolean) {
-    setBusy(true);
-    setError(null);
-    try {
-      onChanged(await api.setChannelEnabled(channelId, module.id, on));
-    } catch {
-      setError('The switch did not go through. Try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function save(payload: Record<string, unknown>): Promise<SaveResult> {
     const result = await api.saveChannelConfig(channelId, module.id, payload);
@@ -59,11 +49,7 @@ export function ChannelModuleRow({ channelId, channelName, module, onChanged }: 
           {module.name}
         </h3>
         <EnablementPill module={module} />
-        {module.needsReview && (
-          <span className="pill pill-warn" title="A stored value was invalid and fell back to its default. Review and save.">
-            needs review
-          </span>
-        )}
+        {module.needsReview && <NeedsReviewPill />}
         <Switch label={`${module.name} in #${channelName}`} on={module.channelEnabled} busy={busy} onToggle={toggle} />
       </div>
       {error && <div className="field-error small">{error}</div>}
@@ -72,11 +58,7 @@ export function ChannelModuleRow({ channelId, channelName, module, onChanged }: 
           ⚠️ The bot is missing permissions here: {module.missingPermissions.join(', ')}
         </div>
       )}
-      {module.lastError && (
-        <div className="small muted">
-          Last error here: {module.lastError.message} · {new Date(module.lastError.at).toLocaleString()}
-        </div>
-      )}
+      <LastErrorLine label="Last error here" error={module.lastError} />
       <div className="row small expanders">
         {hasConfig ? (
           <button type="button" className="link" aria-expanded={configuring} onClick={() => setConfiguring((v) => !v)}>

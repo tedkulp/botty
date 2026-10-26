@@ -1,9 +1,9 @@
-import { useState } from 'react';
 import { ApiError, type ModuleDetail, type ModuleSummary } from '../../api/client.js';
 import { useDashboard } from '../../app/dashboard.js';
 import { SchemaForm, type SaveResult } from '../../forms/SchemaForm.js';
 import { useAsync } from '../../lib/useAsync.js';
-import { LastEdited, StatusLine, Switch } from '../../ui/status.js';
+import { useSwitchRequest } from '../../lib/useSwitchRequest.js';
+import { LastEdited, LastErrorLine, NeedsReviewPill, StatusLine, Switch } from '../../ui/status.js';
 import { ModuleActivityFeed } from '../activity/ModuleActivityFeed.js';
 
 function summaryOf(m: ModuleDetail): ModuleSummary {
@@ -24,8 +24,12 @@ export interface ModulePaneProps {
 export function ModulePane({ moduleId, onChanged }: ModulePaneProps) {
   const { api, refreshKey } = useDashboard();
   const detail = useAsync(() => api.getModule(moduleId), [api, moduleId, refreshKey]);
-  const [busy, setBusy] = useState(false);
-  const [switchError, setSwitchError] = useState<string | null>(null);
+  const { busy, error: switchError, toggle } = useSwitchRequest(async (on) => {
+    const result = await api.setGlobalEnabled(moduleId, on);
+    const next = { ...detail.data!, ...result };
+    detail.setData(next);
+    onChanged(summaryOf(next));
+  });
 
   if (detail.error) {
     const missing = detail.error instanceof ApiError && detail.error.status === 404;
@@ -33,21 +37,6 @@ export function ModulePane({ moduleId, onChanged }: ModulePaneProps) {
   }
   const module = detail.data;
   if (!module) return <p className="muted">Loading…</p>;
-
-  async function toggle(on: boolean) {
-    setBusy(true);
-    setSwitchError(null);
-    try {
-      const result = await api.setGlobalEnabled(moduleId, on);
-      const next = { ...module!, ...result };
-      detail.setData(next);
-      onChanged(summaryOf(next));
-    } catch {
-      setSwitchError('The switch did not go through. Try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function save(payload: Record<string, unknown>): Promise<SaveResult> {
     const result = await api.saveGlobalConfig(moduleId, payload);
@@ -67,20 +56,12 @@ export function ModulePane({ moduleId, onChanged }: ModulePaneProps) {
       {switchError && <div className="field-error small">{switchError}</div>}
       <div className="status-block">
         {module.enabled ? <StatusLine status={module.status} /> : <span className="muted small">Switched off globally</span>}
-        {module.lastError && (
-          <div className="small muted">
-            Last error: {module.lastError.message} · {new Date(module.lastError.at).toLocaleString()}
-          </div>
-        )}
+        <LastErrorLine label="Last error" error={module.lastError} />
       </div>
       <hr />
       <div className="row">
         <h3 className="grow">Global config</h3>
-        {module.needsReview && (
-          <span className="pill pill-warn" title="A stored value was invalid and fell back to its default. Review and save.">
-            needs review
-          </span>
-        )}
+        {module.needsReview && <NeedsReviewPill />}
       </div>
       <SchemaForm
         schema={module.schema.global}

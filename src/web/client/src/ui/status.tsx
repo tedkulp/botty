@@ -48,6 +48,25 @@ export function Switch({ label, on, busy = false, disabled, onToggle }: SwitchPr
   );
 }
 
+/** Shown when a stored config value was invalid and fell back to its default. */
+export function NeedsReviewPill() {
+  return (
+    <span className="pill pill-warn" title="A stored value was invalid and fell back to its default. Review and save.">
+      needs review
+    </span>
+  );
+}
+
+/** "<label>: message · when", or nothing when there is no last error. */
+export function LastErrorLine({ label, error }: { label: string; error: { message: string; at: string } | null }) {
+  if (!error) return null;
+  return (
+    <div className="small muted">
+      {label}: {error.message} · {new Date(error.at).toLocaleString()}
+    </div>
+  );
+}
+
 /** "Last edited by Ada · 2026-10-26 14:02", or nothing for never-edited config. */
 export function LastEdited({ by, at }: { by: { name: string } | null; at: string | null }) {
   if (!by) return <div className="muted small">Never edited</div>;
