@@ -1,0 +1,538 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Answers wayfinder ticket "Dashboard screens" (tedkulp/botty#9).
+  Three structurally different dashboard layouts, switchable via ?variant=A|B|C
+  (floating bar at the bottom, or ← / → keys). All data is fake and in memory.
+  Open this file directly in a browser; no build step.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE · botty dashboard screens</title>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<style>
+  :root { --bg:#f6f7f9; --panel:#fff; --line:#e3e5ea; --text:#1d2129; --muted:#6b7280; --accent:#5865f2;
+          --ok:#16a34a; --warn:#d97706; --err:#dc2626; --off:#9ca3af; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); padding-bottom:80px; }
+  button { font:inherit; cursor:pointer; }
+  input, textarea { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; width:100%; }
+  h1,h2,h3 { margin:0 0 8px; } h1 { font-size:18px; } h2 { font-size:16px; } h3 { font-size:14px; }
+  .muted { color:var(--muted); } .small { font-size:12px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .grow { flex:1; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .btn { border:1px solid var(--line); background:#fff; border-radius:6px; padding:5px 10px; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .link { background:none; border:none; color:var(--accent); padding:0; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; }
+  .banner { padding:8px 16px; background:#fef3c7; border-bottom:1px solid #fcd34d; }
+  .toggle { width:36px; height:20px; border-radius:999px; border:none; position:relative; background:var(--off); flex:none; }
+  .toggle.on { background:var(--ok); }
+  .toggle::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .15s; }
+  .toggle.on::after { left:18px; }
+  .toggle:disabled { opacity:.45; cursor:not-allowed; }
+  .toggle.busy { background:var(--warn); }
+  .field { margin-bottom:12px; } .field label { display:block; font-weight:600; margin-bottom:3px; }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+  .chip { background:#eef0ff; border-radius:4px; padding:1px 6px; font-size:12px; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { padding:6px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
+  th { font-weight:600; font-size:12px; color:var(--muted); }
+  /* switcher + sim bar: deliberately not part of the design being evaluated */
+  .proto-bar { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#111; color:#fff;
+               border-radius:999px; padding:6px 10px; display:flex; gap:10px; align-items:center;
+               box-shadow:0 6px 24px rgba(0,0,0,.35); z-index:100; font-size:13px; }
+  .proto-bar button { background:#333; color:#fff; border:none; border-radius:999px; padding:4px 10px; }
+  .proto-bar .sep { width:1px; height:18px; background:#444; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useReducer, createContext, useContext } = React;
+
+/* ───────────────────────── fake data ───────────────────────── */
+
+// What the core would expose: each Module's zod configSchema, already turned into JSON-Schema-ish field lists.
+const MODULES = [
+  { id: "links", name: "Link collector", blurb: "Saves URLs posted in a channel to Karakeep.", channelDefault: false,
+    global: [
+      { key: "karakeepUrl", label: "Karakeep URL", type: "url" },
+      { key: "apiKey", label: "API key", type: "secret" },
+      { key: "tags", label: "Tags (every channel)", type: "list" },
+      { key: "list", label: "Fallback list", type: "string", help: "Used when a channel has no list." },
+      { key: "ignoredDomains", label: "Ignored domains", type: "list" },
+    ],
+    channel: [
+      { key: "tags", label: "Extra tags", type: "list", help: "Added to the global tags." },
+      { key: "list", label: "List", type: "string", help: "Empty = use the global fallback list." },
+    ] },
+  { id: "echo", name: "Echo (fake 2nd Module)", blurb: "Stand-in so the layouts show more than one Module.", channelDefault: true,
+    global: [{ key: "prefix", label: "Prefix", type: "string" }],
+    channel: [{ key: "reply", label: "Reply in thread", type: "bool" }] },
+];
+
+const SERVERS = [
+  { id: "s1", name: "Homelab", icon: "🏠", categories: [
+    { name: "Text", channels: [
+      { id: "c1", name: "general" },
+      { id: "c2", name: "links", threads: [{ id: "t1", name: "rust stuff" }, { id: "t2", name: "recipes" }] },
+      { id: "c3", name: "reading-list" },
+    ] },
+    { name: "Projects", channels: [{ id: "c4", name: "botty" }, { id: "c5", name: "3d-printing" }] },
+  ] },
+  { id: "s2", name: "Friends", icon: "🍕", categories: [
+    { name: "", channels: [
+      { id: "c6", name: "general" }, { id: "c7", name: "memes" },
+      { id: "c8", name: null, unviewable: true },
+    ] },
+  ] },
+  { id: "s3", name: "Board games", icon: "🎲", categories: [{ name: "", channels: [{ id: "c9", name: "general" }, { id: "c10", name: "links" }] }] },
+];
+const ALL_CHANNELS = SERVERS.flatMap(s => s.categories.flatMap(c => c.channels.map(ch => ({ ...ch, server: s, category: c.name }))));
+
+const initial = {
+  discordUp: true,
+  global: {
+    links: { on: true, config: { karakeepUrl: "https://karakeep.home.lan", apiKey: "kk_••••••••", tags: ["discord"], list: "", ignoredDomains: ["tenor.com", "giphy.com"] },
+             status: { level: "ok", message: "Connected to Karakeep", lastError: "429 Too Many Requests · 2 days ago" },
+             updatedBy: "ted · 3 days ago" },
+    echo: { on: false, config: { prefix: "> " }, status: { level: "off", message: "Switched off" }, updatedBy: "alex · 1 week ago" },
+  },
+  // channel switch + config, keyed `${module}:${channel}`; missing = module's channelDefault and empty config
+  channel: {
+    "links:c2": { on: true, config: { tags: ["homelab"], list: "Homelab" }, updatedBy: "ted · 3 days ago" },
+    "links:c3": { on: true, config: { tags: ["toread"], list: "Reading list" }, updatedBy: "ted · 3 days ago" },
+    "links:c10": { on: true, config: { tags: ["boardgames"], list: "" }, updatedBy: "alex · 5 days ago" },
+    "echo:c7": { on: false, config: {} },
+  },
+};
+
+function reducer(s, a) {
+  switch (a.type) {
+    case "discord": return { ...s, discordUp: !s.discordUp };
+    case "globalBusy": return { ...s, global: { ...s.global, [a.m]: { ...s.global[a.m], busy: true } } };
+    case "globalSet": return { ...s, global: { ...s.global, [a.m]: { ...s.global[a.m], ...a.patch, busy: false, updatedBy: "you · just now" } } };
+    case "status": return { ...s, global: { ...s.global, [a.m]: { ...s.global[a.m], status: a.status } } };
+    case "chan": {
+      const k = `${a.m}:${a.c}`; const cur = s.channel[k] || { on: MOD(a.m).channelDefault, config: {} };
+      return { ...s, channel: { ...s.channel, [k]: { ...cur, ...a.patch, updatedBy: "you · just now" } } };
+    }
+  }
+}
+const MOD = id => MODULES.find(m => m.id === id);
+const Ctx = createContext();
+const useStore = () => useContext(Ctx);
+
+function chanState(s, m, c) { return s.channel[`${m}:${c}`] || { on: MOD(m).channelDefault, config: {} }; }
+function enabled(s, m, c) { return s.global[m].on && chanState(s, m, c).on; }
+
+// Global toggle flip: API awaits setup → returns Module status (ticket "Dashboard stack and process split").
+function useFlipGlobal() {
+  const { s, d } = useStore();
+  return (m) => {
+    const turningOn = !s.global[m].on;
+    d({ type: "globalBusy", m });
+    setTimeout(() => {
+      if (!turningOn) return d({ type: "globalSet", m, patch: { on: false, status: { level: "off", message: "Switched off" } } });
+      const failing = m === "links" && !s.global.links.config.apiKey;
+      d({ type: "globalSet", m, patch: { on: true, status: failing
+        ? { level: "error", message: "setup failed: API key missing", lastError: "setup failed: API key missing · just now" }
+        : { level: "ok", message: "setup ok" } } });
+    }, 700);
+  };
+}
+
+/* ───────────────────────── shared bits ───────────────────────── */
+
+const LEVEL_COLOR = { ok: "var(--ok)", degraded: "var(--warn)", error: "var(--err)", off: "var(--off)" };
+function StatusDot({ level }) { return <span className="dot" style={{ background: LEVEL_COLOR[level] }} title={level} />; }
+function Status({ m }) {
+  const { s } = useStore(); const st = s.global[m].status;
+  return <span className="row small"><StatusDot level={st.level} /><span>{st.message}</span></span>;
+}
+function Toggle({ on, onClick, disabled, busy, title }) {
+  return <button className={`toggle ${on ? "on" : ""} ${busy ? "busy" : ""}`} onClick={onClick} disabled={disabled || busy} title={title} />;
+}
+function DiscordBanner() {
+  const { s } = useStore();
+  if (s.discordUp) return null;
+  return <div className="banner">⚠️ Bot is disconnected from Discord (reconnecting…). Server and channel lists are unavailable; global settings are still editable.</div>;
+}
+function chanLabel(ch) { return ch.unviewable ? "unavailable channel" : `#${ch.name}`; }
+
+// Stand-in for the zod → JSON Schema → form renderer. Same renderer for every Module.
+function SchemaForm({ fields, value, onSave, compact }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [JSON.stringify(value)]);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(value);
+  const set = (k, v) => setDraft({ ...draft, [k]: v });
+  return (
+    <div>
+      {fields.map(f => (
+        <div className="field" key={f.key}>
+          <label>{f.label}</label>
+          {f.type === "list" ? (
+            <input value={(draft[f.key] || []).join(", ")} placeholder="comma, separated"
+                   onChange={e => set(f.key, e.target.value.split(",").map(x => x.trim()).filter(Boolean))} />
+          ) : f.type === "bool" ? (
+            <Toggle on={!!draft[f.key]} onClick={() => set(f.key, !draft[f.key])} />
+          ) : (
+            <input type={f.type === "secret" ? "password" : "text"} value={draft[f.key] || ""} onChange={e => set(f.key, e.target.value)} />
+          )}
+          {f.help && !compact && <div className="small muted">{f.help}</div>}
+        </div>
+      ))}
+      <div className="row">
+        <button className="btn primary" disabled={!dirty} onClick={() => onSave(draft)}>Save</button>
+        {dirty && <button className="btn" onClick={() => setDraft(value)}>Discard</button>}
+      </div>
+    </div>
+  );
+}
+
+function GlobalModulePanel({ m }) {
+  const { s, d } = useStore(); const flip = useFlipGlobal(); const g = s.global[m]; const mod = MOD(m);
+  return (
+    <div className="panel">
+      <div className="row">
+        <h2 className="grow">{mod.name}</h2>
+        <Toggle on={g.on} busy={g.busy} onClick={() => flip(m)} title="Global switch" />
+      </div>
+      <div className="muted small" style={{ marginBottom: 8 }}>{mod.blurb}</div>
+      <Status m={m} />
+      {g.status.lastError && <div className="small muted">Last error: {g.status.lastError}</div>}
+      <hr style={{ border: "none", borderTop: "1px solid var(--line)", margin: "12px 0" }} />
+      <h3>Global config</h3>
+      <SchemaForm fields={mod.global} value={g.config} onSave={config => d({ type: "globalSet", m, patch: { config } })} />
+      <div className="small muted" style={{ marginTop: 8 }}>Last edited by {g.updatedBy}</div>
+    </div>
+  );
+}
+
+function ChannelModuleRow({ m, ch, open, onOpen }) {
+  const { s, d } = useStore(); const mod = MOD(m); const cs = chanState(s, m, ch.id); const gOn = s.global[m].on;
+  return (
+    <div style={{ borderBottom: "1px solid var(--line)", padding: "10px 0" }}>
+      <div className="row">
+        <Toggle on={cs.on} onClick={() => d({ type: "chan", m, c: ch.id, patch: { on: !cs.on } })} />
+        <div className="grow">
+          <b>{mod.name}</b>{" "}
+          {!gOn && cs.on && <span className="pill muted">switched off globally</span>}
+          {enabled(s, m, ch.id) && <span className="pill" style={{ color: "var(--ok)" }}>enabled</span>}
+        </div>
+        {mod.channel.length > 0 && <button className="link" onClick={onOpen}>{open ? "close" : "configure"}</button>}
+      </div>
+      {open && <div style={{ marginTop: 10, paddingLeft: 44 }}>
+        <SchemaForm fields={mod.channel} value={cs.config} onSave={config => d({ type: "chan", m, c: ch.id, patch: { config } })} />
+        {cs.updatedBy && <div className="small muted" style={{ marginTop: 6 }}>Last edited by {cs.updatedBy}</div>}
+      </div>}
+    </div>
+  );
+}
+
+/* ─────────── Variant A: place-first (Discord-like server rail + channel tree) ─────────── */
+
+function VariantA() {
+  const { s } = useStore();
+  const [sel, setSel] = useState({ kind: "server", id: "s1" });
+  const [open, setOpen] = useState(null);
+  const server = SERVERS.find(x => x.id === sel.serverId || x.id === sel.id);
+  const channel = sel.kind === "channel" ? ALL_CHANNELS.find(c => c.id === sel.id) : null;
+  return (
+    <div style={{ display: "flex", height: "calc(100vh - 80px)" }}>
+      {/* server rail */}
+      <div style={{ width: 72, background: "#1e1f22", padding: 10, display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
+        <button title="Modules (global)" onClick={() => setSel({ kind: "modules" })}
+          style={{ width: 48, height: 48, borderRadius: sel.kind === "modules" ? 14 : 24, border: "none", background: "#5865f2", color: "#fff", fontSize: 20 }}>⚙️</button>
+        <div style={{ width: 32, height: 2, background: "#333" }} />
+        {SERVERS.map(sv => (
+          <button key={sv.id} title={sv.name} disabled={!s.discordUp}
+            onClick={() => setSel({ kind: "server", id: sv.id })}
+            style={{ width: 48, height: 48, borderRadius: server?.id === sv.id && sel.kind !== "modules" ? 14 : 24, border: "none", background: "#313338", fontSize: 22, opacity: s.discordUp ? 1 : .3 }}>{sv.icon}</button>
+        ))}
+      </div>
+      {/* channel tree */}
+      <div style={{ width: 240, background: "#2b2d31", color: "#ddd", padding: 12, overflow: "auto" }}>
+        {sel.kind === "modules" ? (
+          <>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Modules</div>
+            {MODULES.map(m => (
+              <div key={m.id} onClick={() => setSel({ kind: "modules", m: m.id })} className="row"
+                style={{ padding: "4px 6px", borderRadius: 4, cursor: "pointer", background: (sel.m || "links") === m.id ? "#404249" : "none" }}>
+                <StatusDot level={s.global[m.id].status.level} /> {m.name}
+              </div>
+            ))}
+          </>
+        ) : !s.discordUp ? <div className="small" style={{ color: "#aaa" }}>Channels unavailable while the bot is disconnected.</div> : (
+          <>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>{server.name}</div>
+            {server.categories.map(cat => (
+              <div key={cat.name} style={{ marginBottom: 10 }}>
+                {cat.name && <div className="small" style={{ textTransform: "uppercase", color: "#949ba4", marginBottom: 2 }}>{cat.name}</div>}
+                {cat.channels.map(ch => (
+                  <div key={ch.id}>
+                    <div onClick={() => !ch.unviewable && setSel({ kind: "channel", id: ch.id, serverId: server.id })} className="row"
+                      style={{ padding: "3px 6px", borderRadius: 4, cursor: ch.unviewable ? "default" : "pointer", opacity: ch.unviewable ? .4 : 1,
+                               background: sel.id === ch.id ? "#404249" : "none" }}>
+                      <span className="grow">{ch.unviewable ? "🔒 unavailable" : `# ${ch.name}`}</span>
+                      {MODULES.filter(m => enabled(s, m.id, ch.id)).map(m => <span key={m.id} title={m.name} className="small">{m.id === "links" ? "🔗" : "💬"}</span>)}
+                    </div>
+                    {ch.threads?.map(t => <div key={t.id} className="small" style={{ paddingLeft: 22, color: "#949ba4" }}>↳ {t.name}</div>)}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+      {/* main pane */}
+      <div style={{ flex: 1, padding: 20, overflow: "auto" }}>
+        {sel.kind === "modules" && <GlobalModulePanel m={sel.m || "links"} />}
+        {sel.kind === "server" && s.discordUp && (
+          <div className="panel">
+            <h1>{server.icon} {server.name}</h1>
+            <p className="muted">Pick a channel on the left to switch Modules on for it. 🔗/💬 mark where a Module is enabled.</p>
+            {MODULES.map(m => {
+              const n = server.categories.flatMap(c => c.channels).filter(ch => enabled(s, m.id, ch.id)).length;
+              return <div key={m.id} className="row" style={{ marginBottom: 4 }}><StatusDot level={s.global[m.id].status.level} /> {m.name}: enabled in {n} channel{n === 1 ? "" : "s"}</div>;
+            })}
+          </div>
+        )}
+        {channel && s.discordUp && (
+          <div className="panel">
+            <h1>#{channel.name} <span className="muted small">in {channel.server.name}</span></h1>
+            {channel.threads && <div className="small muted">Threads ({channel.threads.map(t => t.name).join(", ")}) follow this channel.</div>}
+            {MODULES.map(m => <ChannelModuleRow key={m.id} m={m.id} ch={channel} open={open === m.id} onOpen={() => setOpen(open === m.id ? null : m.id)} />)}
+          </div>
+        )}
+        {!s.discordUp && sel.kind !== "modules" && <div className="panel muted">Bot disconnected. Open ⚙️ Modules to edit global settings.</div>}
+      </div>
+    </div>
+  );
+}
+VariantA.label = "Place-first: server rail + channel tree";
+
+/* ─────────── Variant B: module-first (each Module is a page; channels listed under it) ─────────── */
+
+function VariantB() {
+  const { s, d } = useStore(); const flip = useFlipGlobal();
+  const [m, setM] = useState("links");
+  const [tab, setTab] = useState("channels");
+  const [open, setOpen] = useState(null);
+  const [onlyEnabled, setOnlyEnabled] = useState(false);
+  const mod = MOD(m); const g = s.global[m];
+  return (
+    <div>
+      <div className="row" style={{ background: "#fff", borderBottom: "1px solid var(--line)", padding: "0 20px" }}>
+        <b style={{ marginRight: 20 }}>botty</b>
+        {MODULES.map(x => (
+          <button key={x.id} onClick={() => { setM(x.id); setOpen(null); }} className="row"
+            style={{ border: "none", background: "none", padding: "14px 12px", borderBottom: m === x.id ? "2px solid var(--accent)" : "2px solid transparent" }}>
+            <StatusDot level={s.global[x.id].status.level} /> {x.name}
+          </button>
+        ))}
+        <span className="grow" />
+        <span className="small row"><StatusDot level={s.discordUp ? "ok" : "error"} /> Discord {s.discordUp ? "connected" : "disconnected"}</span>
+      </div>
+      <DiscordBanner />
+      <div style={{ maxWidth: 900, margin: "20px auto", padding: "0 20px" }}>
+        <div className="panel row" style={{ marginBottom: 16 }}>
+          <div className="grow">
+            <h1>{mod.name}</h1>
+            <div className="muted">{mod.blurb}</div>
+            <div style={{ marginTop: 6 }}><Status m={m} /></div>
+          </div>
+          <span className="small muted">{g.on ? "On" : "Off"} globally</span>
+          <Toggle on={g.on} busy={g.busy} onClick={() => flip(m)} />
+        </div>
+        <div className="row" style={{ marginBottom: 12 }}>
+          {["channels", "settings"].map(t => <button key={t} className={`btn ${tab === t ? "primary" : ""}`} onClick={() => setTab(t)}>{t === "channels" ? "Channels" : "Global settings"}</button>)}
+        </div>
+        {tab === "settings" && <GlobalModulePanel m={m} />}
+        {tab === "channels" && (
+          !s.discordUp ? <div className="panel muted">Channel list unavailable while the bot is disconnected.</div> :
+          <div className="panel">
+            {!g.on && <div className="banner" style={{ margin: "-16px -16px 12px", borderRadius: "10px 10px 0 0" }}>Switched off globally: channel switches are kept but nothing runs.</div>}
+            <label className="row small" style={{ marginBottom: 8 }}><input type="checkbox" style={{ width: "auto" }} checked={onlyEnabled} onChange={e => setOnlyEnabled(e.target.checked)} /> only channels switched on</label>
+            {SERVERS.map(sv => {
+              const chans = sv.categories.flatMap(c => c.channels).filter(ch => !onlyEnabled || chanState(s, m, ch.id).on);
+              if (!chans.length) return null;
+              return (
+                <div key={sv.id} style={{ marginBottom: 16 }}>
+                  <h3>{sv.icon} {sv.name}</h3>
+                  <table><tbody>
+                    {chans.map(ch => {
+                      const cs = chanState(s, m, ch.id);
+                      return (
+                        <React.Fragment key={ch.id}>
+                          <tr style={{ opacity: ch.unviewable ? .4 : 1 }}>
+                            <td style={{ width: 50 }}><Toggle on={cs.on} disabled={ch.unviewable} onClick={() => d({ type: "chan", m, c: ch.id, patch: { on: !cs.on } })} /></td>
+                            <td>{chanLabel(ch)} {ch.threads && <span className="small muted">+{ch.threads.length} threads</span>}</td>
+                            <td className="small">
+                              {Object.entries(cs.config).filter(([, v]) => v && v.length !== 0).map(([k, v]) =>
+                                <span key={k} className="chip" style={{ marginRight: 4 }}>{k}: {Array.isArray(v) ? v.join(", ") : String(v)}</span>)}
+                            </td>
+                            <td style={{ textAlign: "right" }}>{!ch.unviewable && mod.channel.length > 0 && <button className="link" onClick={() => setOpen(open === ch.id ? null : ch.id)}>{open === ch.id ? "close" : "edit"}</button>}</td>
+                          </tr>
+                          {open === ch.id && <tr><td /><td colSpan={3}>
+                            <SchemaForm compact fields={mod.channel} value={cs.config} onSave={config => { d({ type: "chan", m, c: ch.id, patch: { config } }); setOpen(null); }} />
+                          </td></tr>}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody></table>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+VariantB.label = "Module-first: a page per Module";
+
+/* ─────────── Variant C: matrix (channels × Modules grid, drawer for config) ─────────── */
+
+function VariantC() {
+  const { s, d } = useStore(); const flip = useFlipGlobal();
+  const [q, setQ] = useState("");
+  const [drawer, setDrawer] = useState(null); // {m} for global, {m, c} for channel
+  const chans = ALL_CHANNELS.filter(ch => !q || (ch.name || "").includes(q) || ch.server.name.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div style={{ display: "flex" }}>
+      <div style={{ flex: 1, padding: 20 }}>
+        <div className="row" style={{ marginBottom: 12 }}>
+          <h1 className="grow" style={{ margin: 0 }}>botty</h1>
+          <span className="small row"><StatusDot level={s.discordUp ? "ok" : "error"} /> Discord {s.discordUp ? "connected" : "disconnected"}</span>
+          <input style={{ width: 220 }} placeholder="Filter channels or servers…" value={q} onChange={e => setQ(e.target.value)} />
+        </div>
+        <div className="panel" style={{ padding: 0, overflow: "auto" }}>
+          <table>
+            <thead>
+              <tr style={{ background: "#fafbfc" }}>
+                <th style={{ width: "40%" }}>Channel</th>
+                {MODULES.map(m => (
+                  <th key={m.id} style={{ textAlign: "center" }}>
+                    <div className="row" style={{ justifyContent: "center" }}>
+                      <StatusDot level={s.global[m.id].status.level} />
+                      <button className="link" onClick={() => setDrawer({ m: m.id })}>{m.name}</button>
+                    </div>
+                    <div className="row" style={{ justifyContent: "center", marginTop: 4 }}>
+                      <span className="small">global</span>
+                      <Toggle on={s.global[m.id].on} busy={s.global[m.id].busy} onClick={() => flip(m.id)} />
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {!s.discordUp ? (
+                <tr><td colSpan={MODULES.length + 1} className="muted" style={{ padding: 20, textAlign: "center" }}>Channels unavailable while the bot is disconnected. Module column headers still open global settings.</td></tr>
+              ) : SERVERS.map(sv => {
+                const rows = chans.filter(c => c.server.id === sv.id);
+                if (!rows.length) return null;
+                return (
+                  <React.Fragment key={sv.id}>
+                    <tr><td colSpan={MODULES.length + 1} style={{ background: "#f1f2f5", fontWeight: 600 }}>{sv.icon} {sv.name}</td></tr>
+                    {rows.map(ch => (
+                      <tr key={ch.id} style={{ opacity: ch.unviewable ? .4 : 1 }}>
+                        <td>{chanLabel(ch)} {ch.category && <span className="small muted">· {ch.category}</span>} {ch.threads && <span className="small muted">· {ch.threads.length} threads follow</span>}</td>
+                        {MODULES.map(m => {
+                          const cs = chanState(s, m.id, ch.id); const gOn = s.global[m.id].on;
+                          const active = drawer?.m === m.id && drawer?.c === ch.id;
+                          return (
+                            <td key={m.id} style={{ textAlign: "center", background: active ? "#eef0ff" : undefined }}>
+                              <div className="row" style={{ justifyContent: "center" }}>
+                                <Toggle on={cs.on} disabled={ch.unviewable} title={!gOn ? "Switched off globally" : ""}
+                                        onClick={() => d({ type: "chan", m: m.id, c: ch.id, patch: { on: !cs.on } })} />
+                                {!ch.unviewable && m.channel.length > 0 &&
+                                  <button className="link small" onClick={() => setDrawer({ m: m.id, c: ch.id })} title="Channel config">⚙</button>}
+                              </div>
+                              {cs.on && !gOn && <div className="small muted">global off</div>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {drawer && (
+        <div style={{ width: 380, borderLeft: "1px solid var(--line)", background: "#fff", padding: 20, minHeight: "calc(100vh - 80px)" }}>
+          <div className="row" style={{ marginBottom: 12 }}>
+            <span className="grow small muted">{drawer.c ? "Channel config" : "Global config"}</span>
+            <button className="btn" onClick={() => setDrawer(null)}>✕</button>
+          </div>
+          {drawer.c ? (() => {
+            const ch = ALL_CHANNELS.find(c => c.id === drawer.c); const mod = MOD(drawer.m); const cs = chanState(s, drawer.m, drawer.c);
+            return <>
+              <h2>{mod.name}</h2>
+              <div className="muted" style={{ marginBottom: 12 }}>#{ch.name} in {ch.server.name}</div>
+              <SchemaForm key={drawer.m + drawer.c} fields={mod.channel} value={cs.config} onSave={config => d({ type: "chan", m: drawer.m, c: drawer.c, patch: { config } })} />
+              <div className="small muted" style={{ marginTop: 12 }}>
+                Global config also applies here: <button className="link" onClick={() => setDrawer({ m: drawer.m })}>view</button>
+              </div>
+            </>;
+          })() : <GlobalModulePanel m={drawer.m} />}
+        </div>
+      )}
+    </div>
+  );
+}
+VariantC.label = "Matrix: channels × Modules grid";
+
+/* ───────────────────────── switcher (prototype-only chrome) ───────────────────────── */
+
+const VARIANTS = { A: VariantA, B: VariantB, C: VariantC };
+const KEYS = Object.keys(VARIANTS);
+
+function App() {
+  const [s, d] = useReducer(reducer, initial);
+  const [v, setV] = useState(() => { const p = new URLSearchParams(location.search).get("variant"); return KEYS.includes(p) ? p : "A"; });
+  const go = step => setV(cur => KEYS[(KEYS.indexOf(cur) + step + KEYS.length) % KEYS.length]);
+  useEffect(() => { const u = new URL(location); u.searchParams.set("variant", v); history.replaceState(null, "", u); }, [v]);
+  useEffect(() => {
+    const h = e => {
+      if (e.target.closest("input, textarea, [contenteditable]")) return;
+      if (e.key === "ArrowLeft") go(-1); if (e.key === "ArrowRight") go(1);
+    };
+    addEventListener("keydown", h); return () => removeEventListener("keydown", h);
+  }, []);
+  const V = VARIANTS[v];
+  const links = s.global.links;
+  return (
+    <Ctx.Provider value={{ s, d }}>
+      {v === "A" && <DiscordBanner />}
+      <V key={v} />
+      <div className="proto-bar">
+        <button onClick={() => go(-1)}>←</button>
+        <b>{v}</b><span>{V.label}</span>
+        <button onClick={() => go(1)}>→</button>
+        <span className="sep" />
+        <span style={{ color: "#aaa" }}>sim:</span>
+        <button onClick={() => d({ type: "discord" })}>{s.discordUp ? "drop Discord" : "reconnect Discord"}</button>
+        <button onClick={() => d({ type: "status", m: "links", status: links.status.level === "degraded"
+          ? { level: "ok", message: "Connected to Karakeep", lastError: links.status.lastError }
+          : { level: "degraded", message: "Karakeep unreachable, 3 saves failed", lastError: "ECONNREFUSED · just now" } })}>
+          {links.status.level === "degraded" ? "heal Karakeep" : "break Karakeep"}
+        </button>
+      </div>
+    </Ctx.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
