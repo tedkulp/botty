@@ -14,6 +14,7 @@ import {
   type ModuleRuntime,
 } from './core/modules/index.js';
 import { modules } from './modules/index.js';
+import { createOidcProvider } from './web/server/auth/oidc.js';
 
 export const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -54,7 +55,21 @@ export async function start(env: Env, logger: Logger): Promise<Botty> {
     channels: discordChannelResolver(discord.client),
     logger,
   });
-  const app = createApp({ db, discord: discord.status });
+  const oidc = createOidcProvider({
+    issuer: env.OIDC_ISSUER,
+    clientId: env.OIDC_CLIENT_ID,
+    clientSecret: env.OIDC_CLIENT_SECRET,
+  });
+  const app = createApp({
+    db,
+    discord: discord.status,
+    auth: {
+      oidc,
+      publicUrl: env.PUBLIC_URL,
+      adminGroup: env.ADMIN_GROUP,
+      sessionSecret: env.SESSION_SECRET,
+    },
+  });
 
   const server = await new Promise<ServerType>((resolve, reject) => {
     const s = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
