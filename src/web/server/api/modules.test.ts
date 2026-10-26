@@ -257,7 +257,7 @@ describe('POST /api/modules/:id/enabled', () => {
 
     expect(res.status).toBe(200);
     expect(await json(res)).toMatchObject({ enabled: false });
-    expect(t.runtime.isActive('linkish')).toBe(false);
+    expect(t.runtime.isRunning('linkish')).toBe(false);
   });
 
   it('rejects a body without a boolean `on`', async () => {

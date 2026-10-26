@@ -64,7 +64,7 @@ export interface ModuleRuntime {
   /** Enabled (in a channel), with threads resolved to their parent. */
   isEnabledIn(id: string, channelId: string): boolean;
   /** Whether setup has run and the Module's handlers are registered. */
-  isActive(id: string): boolean;
+  isRunning(id: string): boolean;
   status(id: string): ModuleStatus;
   lastError(id: string): ErrorRecord | null;
   /** Last handler error in a channel; errors in its threads count toward it. */
@@ -87,8 +87,8 @@ interface ModuleState {
   status: ModuleStatus;
   lastError: ErrorRecord | null;
   channelErrors: Map<string, ErrorRecord>;
-  /** Present while active: handlers registered by this activation and its cleanup. */
-  active: { handlers: Map<ModuleEventName, Set<Listener>>; cleanup?: Cleanup } | null;
+  /** Present while running: handlers registered by this run and its cleanup. */
+  running: { handlers: Map<ModuleEventName, Set<Listener>>; cleanup?: Cleanup } | null;
   /** Serialises setup/cleanup for this Module. */
   lock: Promise<unknown>;
 }
@@ -105,7 +105,7 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
       status: { level: 'ok' },
       lastError: null,
       channelErrors: new Map(),
-      active: null,
+      running: null,
       lock: Promise.resolve(),
     });
   }
@@ -185,7 +185,7 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
     if (!channelId) return;
     const runs: Promise<void>[] = [];
     for (const state of states.values()) {
-      const handlers = state.active?.handlers.get(event);
+      const handlers = state.running?.handlers.get(event);
       if (!handlers?.size) continue;
       let enabled: boolean;
       try {
@@ -212,7 +212,7 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
 
   /** Attach or detach the source listener for an event to match current handlers. */
   function syncSubscription(event: ModuleEventName) {
-    const wanted = [...states.values()].some((s) => (s.active?.handlers.get(event)?.size ?? 0) > 0);
+    const wanted = [...states.values()].some((s) => (s.running?.handlers.get(event)?.size ?? 0) > 0);
     const current = sourceListeners.get(event);
     if (wanted && !current) {
       const listener: Listener = (...args) => void track(dispatch(event, args as ModuleEvents[typeof event]));
@@ -224,13 +224,13 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
     }
   }
 
-  function makeContext(state: ModuleState, activation: NonNullable<ModuleState['active']>): ModuleContext {
+  function makeContext(state: ModuleState, run: NonNullable<ModuleState['running']>): ModuleContext {
     const { module } = state;
     return {
       on(event, handler) {
-        if (state.active !== activation) return;
-        let set = activation.handlers.get(event);
-        if (!set) activation.handlers.set(event, (set = new Set()));
+        if (state.running !== run) return;
+        let set = run.handlers.get(event);
+        if (!set) run.handlers.set(event, (set = new Set()));
         set.add(handler as Listener);
         syncSubscription(event);
       },
@@ -252,38 +252,38 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
   }
 
   function withLock<T>(state: ModuleState, fn: () => Promise<T>): Promise<T> {
-    const run = state.lock.then(fn, fn);
-    state.lock = run.catch(() => {});
-    return track(run);
+    const next = state.lock.then(fn, fn);
+    state.lock = next.catch(() => {});
+    return track(next);
   }
 
-  function deactivateHandlers(state: ModuleState) {
-    const activation = state.active;
-    state.active = null;
-    for (const event of activation?.handlers.keys() ?? []) syncSubscription(event);
-    return activation;
+  function dropHandlers(state: ModuleState) {
+    const run = state.running;
+    state.running = null;
+    for (const event of run?.handlers.keys() ?? []) syncSubscription(event);
+    return run;
   }
 
-  async function activate(state: ModuleState): Promise<void> {
-    if (state.active) return;
-    const activation: NonNullable<ModuleState['active']> = { handlers: new Map() };
-    state.active = activation;
+  async function startModule(state: ModuleState): Promise<void> {
+    if (state.running) return;
+    const run: NonNullable<ModuleState['running']> = { handlers: new Map() };
+    state.running = run;
     setStatus(state, 'ok', undefined, false);
     try {
-      const cleanup = await state.module.setup(makeContext(state, activation) as never);
-      if (typeof cleanup === 'function') activation.cleanup = cleanup;
+      const cleanup = await state.module.setup(makeContext(state, run) as never);
+      if (typeof cleanup === 'function') run.cleanup = cleanup;
       log.info({ moduleId: state.module.id }, 'Module set up');
     } catch (err) {
-      if (state.active === activation) deactivateHandlers(state);
+      if (state.running === run) dropHandlers(state);
       recordError(state, err, 'setup');
     }
   }
 
-  async function deactivate(state: ModuleState): Promise<void> {
-    const activation = deactivateHandlers(state);
-    if (!activation?.cleanup) return;
+  async function stopModule(state: ModuleState): Promise<void> {
+    const run = dropHandlers(state);
+    if (!run?.cleanup) return;
     try {
-      await activation.cleanup();
+      await run.cleanup();
     } catch (err) {
       recordError(state, err, 'cleanup');
     }
@@ -297,14 +297,14 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
       await Promise.all(
         [...states.values()].map((state) =>
           withLock(state, async () => {
-            if (store.readGlobal(state.module).enabled === true) await activate(state);
+            if (store.readGlobal(state.module).enabled === true) await startModule(state);
           }),
         ),
       );
     },
 
     async stop() {
-      await Promise.all([...states.values()].map((state) => withLock(state, () => deactivate(state))));
+      await Promise.all([...states.values()].map((state) => withLock(state, () => stopModule(state))));
     },
 
     async setModuleGlobalEnabled(id, on, actor) {
@@ -312,8 +312,8 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
       return withLock(state, async () => {
         store.setGlobalEnabled(id, on, actor);
         writeActivity({ moduleId: id, level: 'info', message: `switched ${on ? 'on' : 'off'} globally`, actor });
-        if (on) await activate(state);
-        else await deactivate(state);
+        if (on) await startModule(state);
+        else await stopModule(state);
         return state.status;
       });
     },
@@ -351,7 +351,7 @@ export function createModuleRuntime(options: ModuleRuntimeOptions): ModuleRuntim
     },
 
     isEnabledIn: (id, channelId) => enabledIn(stateOf(id), channelId),
-    isActive: (id) => stateOf(id).active !== null,
+    isRunning: (id) => stateOf(id).running !== null,
     status: (id) => stateOf(id).status,
     lastError: (id) => stateOf(id).lastError,
     lastErrorIn: (id, channelId) => stateOf(id).channelErrors.get(channelId) ?? null,

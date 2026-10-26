@@ -171,8 +171,8 @@ describe('module runtime lifecycle', () => {
     const rt = runtime([on.module, off.module]);
     await rt.start();
 
-    expect(rt.isActive('on')).toBe(true);
-    expect(rt.isActive('off')).toBe(false);
+    expect(rt.isRunning('on')).toBe(true);
+    expect(rt.isRunning('off')).toBe(false);
   });
 
   it('switching off globally runs cleanup and stops events', async () => {
@@ -210,7 +210,7 @@ describe('module runtime lifecycle', () => {
     const status = await rt.setModuleGlobalEnabled('warm', true, admin);
 
     expect(status).toEqual({ level: 'degraded', message: 'not configured' });
-    expect(rt.isActive('warm')).toBe(true);
+    expect(rt.isRunning('warm')).toBe(true);
     expect(store.readGlobal(mod).enabled).toBe(true);
   });
 
@@ -255,7 +255,7 @@ describe('module runtime lifecycle', () => {
     await rt.start();
 
     expect(rt.status('bad').level).toBe('error');
-    expect(rt.isActive('good')).toBe(true);
+    expect(rt.isRunning('good')).toBe(true);
   });
 
   it('setModuleChannelEnabled stores the choice and logs Activity', async () => {

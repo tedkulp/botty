@@ -7,7 +7,7 @@ import { ColumnAndPane } from '../../shell/Shell.js';
 import { dotLevel, StatusDot } from '../../ui/status.js';
 import { ModulePane } from './ModulePane.js';
 
-/** ⚙️ Modules: every Module in the column, the selected one's global settings in the pane. */
+/** ⚙️ Modules: every Module in the column, the selected one's Global config in the pane. */
 export function ModulesScreen({ moduleId }: { moduleId: string | undefined }) {
   const { api, navigate, refreshKey } = useDashboard();
   const list = useAsync(() => api.listModules(), [api, refreshKey]);

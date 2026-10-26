@@ -17,7 +17,7 @@ export interface ModulePaneProps {
 }
 
 /**
- * One Module's global settings: the global switch (amber while setup or
+ * One Module's global switch (amber while setup or
  * cleanup runs), status and last error, a needs-review flag and the Global
  * config form, then the Module's Activity feed.
  */

@@ -9,7 +9,7 @@ export interface OrphanListProps {
 }
 
 /**
- * Stored channel settings whose channel (or guild) is gone, as "unavailable"
+ * Stored Channel config whose channel (or guild) is gone, as "unavailable"
  * rows. Nothing is deleted unless an Admin presses Delete.
  */
 export function OrphanList({ orphans, onDeleted }: OrphanListProps) {
@@ -35,7 +35,7 @@ export function OrphanList({ orphans, onDeleted }: OrphanListProps) {
   return (
     <div className="orphans">
       <h3>Unavailable channels</h3>
-      <p className="muted small">Settings kept for channels the bot can no longer find. They are never deleted automatically.</p>
+      <p className="muted small">Channel config kept for channels the bot can no longer find. They are never deleted automatically.</p>
       {error && <div className="field-error small">{error}</div>}
       <ul className="orphan-list">
         {orphans.map((o) => {
