@@ -32,7 +32,7 @@ Optional: `LOG_LEVEL` (`info`), `PORT` (`3000`), `DATA_DIR` (`/data`).
 
 ### Reverse proxy
 
-Serve Botty at the root of its own host (e.g. `botty.example.com`, not a sub-path) and terminate TLS at the proxy, forwarding plain HTTP to port 3000. `PUBLIC_URL` must be the `https://` origin people use. `GET /healthz` reports `{db, discord}`; it returns 200 while Discord is unreachable and 503 only when the database is.
+Serve Botty at the root of its own host (e.g. `botty.example.com`, not a sub-path) and terminate TLS at the proxy, forwarding plain HTTP to `PORT` (3000 by default; compose publishes it on the same host port). `PUBLIC_URL` must be the `https://` origin people use. `GET /healthz` reports `{db, discord}`; it returns 200 while Discord is unreachable and 503 only when the database is.
 
 ## Development
 

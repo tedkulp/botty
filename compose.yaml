@@ -4,7 +4,8 @@ services:
     image: ${BOTTY_IMAGE:-ghcr.io/tedkulp/botty:main}
     env_file: .env
     ports:
-      - "3000:3000"
+      # PORT (from .env or the shell) sets both the container and host port.
+      - "${PORT:-3000}:${PORT:-3000}"
     volumes:
       # Must be writable by uid 1000 (the image's `node` user): mkdir data && sudo chown 1000:1000 data
       - ./data:/data
